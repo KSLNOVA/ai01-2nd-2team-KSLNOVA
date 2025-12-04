@@ -6,7 +6,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 # 프로젝트 기획서
 
 ## 1. 프로젝트 정의
-- **프로젝트 이름(가칭)** : 운동 자세 AI Agent
+- **프로젝트 이름(가칭)** : 🏋🏻운동 자세 AI Agent
 - **프로젝트 목표**
   - 웹캠으로 촬영한 사용자의 운동 자세를 실시간으로 인식하고,
     - YOLO + MediaPipe로 **자세를 감지/분석**하고
@@ -20,14 +20,47 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   - 실시간 동작 인식 및 자세 교정 스마트 미러 피트니스 시스템 
 
 ## 2. 주요 내용
-- **프로젝트 기간**: 2025-12-02 ~ 2025-12-10
-- **팀원 소개**
+- **📅 프로젝트 기간**: 2025-12-02 ~ 2025-12-10
+- **👨🏻‍👩🏻‍👧🏻‍👦🏻 팀원 소개**
 
-|        | 김채원 | 손지원 | 이주연 | 이진배 |
-|--------|--------|--------|--------|--------|
-| 사진   | <p align="center"><img src="https://placehold.co/150x150" alt="김채원" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="손지원" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="이주연" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="이진배" width="150" height="150"></p> |
-| 역할   | TTS / 팀장 | UI | CV | LLM |
-| 담당 모듈 | 자세 스코어링, TTS 엔진 선정, 텍스트→음성 변환 | 웹 UI, 웹캠 | YOLO / MediaPipe, 관절 각도 계산 | vLLM 세팅, 코칭/Q&A 프롬프트, 유튜브 추천 키워드 |
+<table>
+  <tr>
+    <th></th>
+    <th>김채원</th>
+    <th>손지원</th>
+    <th>이주연</th>
+    <th>이진배</th>
+  </tr>
+  <tr>
+    <td>사진</td>
+    <td align="center">
+      <img src="https://placehold.co/150x150" alt="김채원" width="150" height="150">
+    </td>
+    <td align="center">
+      <img src="https://placehold.co/150x150" alt="손지원" width="150" height="150">
+    </td>
+    <td align="center">
+      <img src="https://placehold.co/150x150" alt="이주연" width="150" height="150">
+    </td>
+    <td align="center">
+      <img src="https://placehold.co/150x150" alt="이진배" width="150" height="150">
+    </td>
+  </tr>
+  <tr>
+    <td>역할</td>
+    <td>TTS / 팀장</td>
+    <td>UI</td>
+    <td>CV</td>
+    <td>LLM</td>
+  </tr>
+  <tr>
+    <td>담당 모듈</td>
+    <td>자세 스코어링, TTS 엔진 선정, 텍스트→음성 변환</td>
+    <td>웹 UI, 웹캠</td>
+    <td>YOLO / MediaPipe, 관절 각도 계산</td>
+    <td>vLLM 세팅, 코칭/Q&A 프롬프트, 유튜브 추천 키워드</td>
+  </tr>
+</table>
 
 
 
@@ -36,7 +69,6 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 
 
 ## 3. 일정 계획
-![일정표]
 
 | 작업 항목                  | 시작 날짜   | 종료 날짜   | 기간(일) |
 |---------------------------|------------|------------|---------|
@@ -54,7 +86,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 
 ## 1. 기능 단위 WBS (1차 버전)
 
-### 1. CV 모듈 (YOLO + MediaPipe)
+### 1. 📸CV 모듈 (YOLO + MediaPipe)
 
 - 1.1 웹캠/영상 입력 파이프라인 구현  
 - 1.2 YOLO 기반 사람/운동 영역 탐지 코드 작성  
@@ -63,13 +95,13 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 - 1.5 운동별 (푸쉬업, 스쿼트) 기본 자세 기준 룰 정의  
 - 1.6 자세 스코어링 및 상태 분류 (좋음/보통/나쁨 등)
 
-### 2. TTS 피드백 모듈
+### 2. 🗣️TTS 피드백 모듈
 
 - 2.1 TTS 엔진 후보 조사 및 선정  
 - 2.2 텍스트 → 음성 변환 함수 구현  
 - 2.3 Frontend와 음성 재생 연동 (재생/정지 버튼, 자동 재생 여부)
 
-### 3. LLM 코치 & Q&A 모듈 (vLLM)
+### 3. 💬LLM 코치 & Q&A 모듈 (vLLM)
 
 - 3.1 vLLM 환경 세팅 및 로컬 서버 실행  
 - 3.2 코칭 프롬프트 템플릿 설계  
@@ -78,7 +110,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 - 3.4 운동 관련 Q&A 처리 API 구현  
 - 3.5 유튜브 검색 키워드/문장 생성 기능
 
-### 4. Frontend(UI)
+### 4. 💻Frontend(UI)
 
 - 4.1 UI 와이어프레임 설계  
 - 4.2 웹캠 영상 스트리밍 + skeleton 오버레이  
