@@ -204,6 +204,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 
 ## 3. 설계 이미지
 ```mermaid
+%%{init: {'themeVariables': { 'fontSize': '22px' }, 'flowchart': { 'nodeSpacing': 50, 'rankSpacing': 70 }}}%%
 flowchart LR
 
     %% ==== Frontend / User ====
