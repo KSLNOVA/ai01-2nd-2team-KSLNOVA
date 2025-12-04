@@ -25,9 +25,10 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 
 |        | 김채원 | 손지원 | 이주연 | 이진배 |
 |--------|--------|--------|--------|--------|
-| 사진   | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> |
+| 사진   | <p align="center"><img src="https://placehold.co/150x150" alt="김채원" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="손지원" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="이주연" width="150" height="150"></p> | <p align="center"><img src="https://placehold.co/150x150" alt="이진배" width="150" height="150"></p> |
 | 역할   | TTS / 팀장 | UI | CV | LLM |
 | 담당 모듈 | 자세 스코어링, TTS 엔진 선정, 텍스트→음성 변환 | 웹 UI, 웹캠 | YOLO / MediaPipe, 관절 각도 계산 | vLLM 세팅, 코칭/Q&A 프롬프트, 유튜브 추천 키워드 |
+
 
 
 
