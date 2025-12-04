@@ -22,11 +22,14 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 ## 2. 주요 내용
 - **프로젝트 기간**: 2025-12-02 ~ 2025-12-10
 - **팀원 소개**
-| 김채원 | 손지원 | 이주연 | 이진배 |
-|----------|-------|-------|-------|
-| <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> |
-| **역할**<br>팀장<br>TTS | **역할**<br>UI | **역할**<br>CV | **역할**<br>LLM |
-| **담당 모듈**<br>- 자세 스코어링<br>- TTS 엔진 선정<br>- 텍스트→음성 변환<br>- 음성 재생 연동 | **담당 모듈**<br>- 웹 UI 설계<br>- 웹캠 + skeleton 화면<br>- LLM/TTS 연동 | **담당 모듈**YOLO / MediaPipe<br>- 관절 각도 계산 | **담당 모듈**<br>- vLLM 세팅<br>- 코칭/Q&A 프롬프트<br>- 유튜브 추천 키워드 |
+
+|        | 김채원 | 손지원 | 이주연 | 이진배 |
+|--------|--------|--------|--------|--------|
+| 사진   | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> | <img src="https://placehold.co/150x150" alt="사진" width="150"/> |
+| 역할   | TTS / 팀장 | UI | CV | LLM |
+| 담당 모듈 | 자세 스코어링, TTS 엔진 선정, 텍스트→음성 변환 | 웹 UI, 웹캠 | YOLO / MediaPipe, 관절 각도 계산 | vLLM 세팅, 코칭/Q&A 프롬프트, 유튜브 추천 키워드 |
+
+
 
 
 
