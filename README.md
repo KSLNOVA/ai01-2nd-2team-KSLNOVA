@@ -32,7 +32,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
     <th>이진배</th>
   </tr>
   <tr>
-    <td>사진</td>
+    <td></td>
     <td align="center">
       <img src="https://placehold.co/150x150" alt="김채원" width="150" height="150">
     </td>
@@ -53,13 +53,28 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
     <td>CV</td>
     <td>LLM</td>
   </tr>
-  <tr>
-    <td>담당 모듈</td>
-    <td>자세 스코어링, TTS 엔진 선정, 텍스트→음성 변환</td>
-    <td>웹 UI, 웹캠</td>
-    <td>YOLO / MediaPipe, 관절 각도 계산</td>
-    <td>vLLM 세팅, 코칭/Q&A 프롬프트, 유튜브 추천 키워드</td>
-  </tr>
+<tr>
+  <td>담당 모듈</td>
+  <td>
+    자세 스코어링<br/>
+    TTS 엔진 선정<br/>
+    텍스트→음성 변환
+  </td>
+  <td>
+    웹 UI<br/>
+    웹캠
+  </td>
+  <td>
+    YOLO<br/>
+    MediaPipe<br/>
+    관절각도계산
+  </td>
+  <td>
+    vLLM 세팅<br/>
+    유튜브 추천 키워드
+  </td>
+</tr>
+
 </table>
 
 
