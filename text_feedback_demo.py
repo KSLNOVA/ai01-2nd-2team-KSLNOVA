@@ -1,3 +1,6 @@
+# 현재 폴더에 새파일 만들기 > ./streamlit/secrets.toml파일 만들고
+# 거기에 OPENAI_API_KEY = "api" 입력후 저장
+
 import cv2
 import mediapipe as mp
 import numpy as np
