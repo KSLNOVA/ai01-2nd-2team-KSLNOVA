@@ -199,6 +199,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   <!-- 3줄 -->
   <img src="https://img.shields.io/badge/TTS-FFAA00?style=for-the-badge&logo=&logoColor=white"/>
   <img src="https://img.shields.io/badge/vLLM-8A2BE2?style=for-the-badge&logo=&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Gradio-7A1FFF?style=for-the-badge&logo=gradio&logoColor=white"/>
 </p>
 
 
