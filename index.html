@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="./run.css" />
     <!-- React 18 CDN -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -22,25 +23,19 @@
         background: #0b1221;
       }
     </style>
-    <!-- env.js가 있으면 여기서 window.ENV를 주입합니다 (없어도 무시) -->
     <script src="./env.js"></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="text/javascript">
-      // env.js에서 넣어주면 그대로 사용, 없으면 아래 기본값 사용
       window.ENV =
         window.ENV ||
         {
-          YOUTUBE_API_KEY: '', // 예: 'AIza...'
-          OPENAI_API_KEY: '', // 예: 'sk-...'
+          YOUTUBE_API_KEY: '',
+          OPENAI_API_KEY: '',
         };
     </script>
-    <script
-      type="text/babel"
-      data-presets="env,react"
-      data-plugins="proposal-optional-chaining,proposal-nullish-coalescing-operator"
-    >
+    <script type="text/babel" data-presets="env,react">
       const { useEffect, useRef, useState } = React;
 
       const ENV = window.ENV || {};
@@ -72,7 +67,6 @@
         스쿼트: '스쿼트 운동 자세',
       };
 
-      // 임시 지난 운동 기록 (나중에 백엔드로 교체)
       const DUMMY_HISTORY = [
         { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
         { date: '2025-12-03', exercise: '플랭크', set: '2세트', summary: '어깨 살짝 내려주기' },
@@ -106,13 +100,14 @@
           { time: '12:30', exercise: '플랭크', text: '호흡을 길게 유지하고 코어를 잠금.' },
           { time: '12:24', exercise: '스쿼트', text: '무릎이 안쪽으로 말리지 않도록 신경 쓰기.' },
         ]);
+        const [voices, setVoices] = useState([]);
+        const [voiceId, setVoiceId] = useState('');
+        const [voiceLabel, setVoiceLabel] = useState('');
+
         const videoRef = useRef(null);
         const synthRef = useRef(null);
         const voiceRef = useRef(null);
         const lastSpokenRef = useRef('');
-        const [voiceLabel, setVoiceLabel] = useState('');
-        const [voices, setVoices] = useState([]);
-        const [voiceId, setVoiceId] = useState('');
 
         const youtubeReady = Boolean(YOUTUBE_API_KEY);
 
@@ -136,7 +131,6 @@
           return text.length > max ? `${text.slice(0, max)}…` : text;
         };
 
-        // 운동 변경 시 YouTube 검색 + 지난 운동 기록 갱신
         useEffect(() => {
           let cancelled = false;
 
@@ -167,7 +161,7 @@
               const resp = await fetch(`https://www.googleapis.com/youtube/v3/search?${params.toString()}`);
               if (!resp.ok) throw new Error(`YouTube API 실패 (${resp.status})`);
               const data = await resp.json();
-              const items = (data && data.items) || [];
+              const items = data && data.items ? data.items : [];
               if (!items.length) {
                 setYoutubeUrl(FALLBACK_YT);
                 setYoutubeError('검색 결과가 없어 기본 영상을 사용합니다.');
@@ -200,7 +194,6 @@
           };
         }, [exercise, videoPinned, focusLine]);
 
-        // 웹캠 시작
         useEffect(() => {
           async function initCamera() {
             if (!videoRef.current) return;
@@ -225,7 +218,6 @@
           };
         }, []);
 
-        // TTS 준비
         useEffect(() => {
           if (typeof window === 'undefined') return;
           if (!('speechSynthesis' in window)) {
@@ -258,6 +250,7 @@
             setTimeout(assignVoice, 300);
             setTimeout(assignVoice, 1200);
           }
+
           return () => {
             if (synthRef.current && synthRef.current.cancel) synthRef.current.cancel();
             if (window.speechSynthesis && window.speechSynthesis.removeEventListener) {
@@ -266,21 +259,11 @@
           };
         }, []);
 
-        const handleVoiceChange = (id) => {
-          const next = voices.find((v) => v.name === id || v.voiceURI === id);
-          if (next) {
-            voiceRef.current = next;
-            setVoiceId(id);
-            setVoiceLabel(next.name || '음성');
-            speakFeedback(feedback);
-          }
-        };
-
         const speakFeedback = (text) => {
           if (!ttsEnabled || !synthRef.current || !ttsSupported) return;
           const say = (text || '').trim();
           if (!say) return;
-          if (synthRef.current && synthRef.current.cancel) synthRef.current.cancel();
+          if (synthRef.current.cancel) synthRef.current.cancel();
           const u = new SpeechSynthesisUtterance(say);
           u.lang = 'ko-KR';
           if (voiceRef.current) u.voice = voiceRef.current;
@@ -290,20 +273,12 @@
           lastSpokenRef.current = say;
         };
 
-        // 피드백이 바뀌면 자동으로 읽어주기
         useEffect(() => {
           if (!ttsEnabled) return;
           if (!feedback || !feedback.trim()) return;
           if (lastSpokenRef.current === feedback.trim()) return;
           speakFeedback(feedback);
         }, [feedback, ttsEnabled]);
-
-        const handleMockFeedback = () => {
-          const list = FEEDBACK_PRESETS[exercise] || [`${exercise} 자세를 천천히 진행해 보세요.`];
-          const next = list[Math.floor(Math.random() * list.length)];
-          setFeedback(next);
-          appendLog(next);
-        };
 
         const normalizeEmbedUrl = (val) => {
           const raw = (val || '').trim();
@@ -340,7 +315,7 @@
               setYoutubeUrl(`https://www.youtube.com/embed/${videoId}`);
               setVideoPinned(true);
               setYoutubeError('');
-              appendLog(`튜토리얼 영상을 \"${q}\" 검색 결과로 변경했습니다.`);
+              appendLog(`튜토리얼 영상을 "${q}" 검색 결과로 변경했습니다.`);
             } else {
               setYoutubeError('검색 결과가 없어 기본 영상을 유지합니다.');
             }
@@ -400,14 +375,13 @@
             await searchAndSetVideo(q);
             setChatMessages((prev) => [
               ...prev,
-              { role: 'assistant', content: `\"${q}\" 검색 결과로 영상을 바꿨어요.` },
+              { role: 'assistant', content: `"${q}" 검색 결과로 영상을 바꿨어요.` },
             ]);
             return true;
           }
           return false;
         };
 
-        // 채팅 전송 (OpenAI API 사용)
         const handleSend = async () => {
           const text = chatInput.trim();
           if (!text) return;
@@ -479,107 +453,90 @@
         };
 
         return (
-          <div style={styles.appShell}>
-            <div style={styles.glow} />
-            <div style={styles.page}>
-              <header style={styles.header}>
-              <div>
-                <div style={styles.kicker}>KSL NOVA · Posture Lab</div>
-                <h1 style={styles.title}>운동 자세 AI Agent</h1>
-                <p style={styles.subtitle}>웹캠 기반 실시간 코칭</p>
-              </div>
-              <div />
-            </header>
-
-              <section style={styles.heroCard}>
+          <div className="app-shell">
+            <div className="glow" />
+            <div className="app-page">
+              <header className="app-header">
                 <div>
-                  <div style={styles.heroLabelRow}>
-                    <span style={styles.label}>현재 운동</span>
-                    <span style={styles.heroExercise}>{exercise}</span>
-                  </div>
-                  <div style={styles.heroFocus}>{focusLine}</div>
+                  <div className="app-kicker">KSL NOVA · AI Agent</div>
+                  <h1 className="app-title">운동 자세 AI Agent</h1>
+                  <p className="app-subtitle">웹캠 기반 실시간 코칭</p>
                 </div>
-                <div style={styles.heroStatsGrid}>
-                  <div style={styles.statCard}>
-                    <div style={styles.statLabel}>가장 최근 코칭</div>
-                    <div style={styles.statValue}>{truncate(feedback, 38)}</div>
-                    <div style={styles.statMeta}>{timeLabel()}</div>
+                <div />
+              </header>
+
+              <section className="hero-card">
+                <div>
+                  <div className="hero-label-row">
+                    <span className="label">현재 운동</span>
+                    <span className="hero-exercise">{exercise}</span>
                   </div>
-                  <div style={styles.statCard}>
-                    <div style={styles.statLabel}>채팅 교환</div>
-                    <div style={styles.statValue}>{chatMessages.length || 0} 회</div>
-                    <div style={styles.statMeta}>LLM 응답 대기 시 상태 표시</div>
+                  <div className="hero-focus">{focusLine}</div>
+                </div>
+                <div className="hero-stats">
+                  <div className="stat-card">
+                    <div className="stat-label">가장 최근 코칭</div>
+                    <div className="stat-value">{truncate(feedback, 38)}</div>
+                    <div className="stat-meta">{timeLabel()}</div>
                   </div>
-                  <div style={styles.statCard}>
-                    <div style={styles.statLabel}>오늘의 포커스</div>
-                    <div style={styles.statValue}>
-                      {(EXERCISE_FOCUS[exercise] && EXERCISE_FOCUS[exercise][0]) || '폼 안정성'}
-                    </div>
-                    <div style={styles.statMeta}>
-                      {(EXERCISE_FOCUS[exercise] && EXERCISE_FOCUS[exercise][1]) || '호흡 유지'}
-                    </div>
+                  <div className="stat-card">
+                    <div className="stat-label">채팅 교환</div>
+                    <div className="stat-value">{chatMessages.length || 0} 회</div>
+                    <div className="stat-meta">LLM 응답 대기 시 상태 표시</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">오늘의 포커스</div>
+                    <div className="stat-value">{EXERCISE_FOCUS[exercise]?.[0] || '폼 안정성'}</div>
+                    <div className="stat-meta">{EXERCISE_FOCUS[exercise]?.[1] || '호흡 유지'}</div>
                   </div>
                 </div>
               </section>
 
-              <div style={styles.toolbar}>
-                <div style={styles.toolbarLeft}>
-                  <span style={styles.toolbarNote}>카메라 허용 시 오른쪽에 실시간 스트림이 표시됩니다.</span>
+              <div className="toolbar">
+                <div className="toolbar-left">
+                  <span className="toolbar-note">카메라 허용 시 오른쪽에 실시간 스트림이 표시됩니다.</span>
                 </div>
               </div>
 
-              <div style={styles.stage}>
+              <div className="stage">
                 <button
                   aria-label={showLeftPanel ? '왼쪽 패널 숨기기' : '왼쪽 패널 보이기'}
-                  style={{
-                    ...styles.edgeToggle,
-                    ...styles.edgeToggleLeft,
-                    ...(showLeftPanel ? styles.edgeToggleActive : {}),
-                  }}
+                  className={`edge-toggle edge-toggle-left ${showLeftPanel ? 'edge-toggle-active' : ''}`}
                   onClick={() => setShowLeftPanel((v) => !v)}
                 >
                   {showLeftPanel ? '◀' : '▶'}
-                  <span style={styles.edgeLabel}>{showLeftPanel ? '패널 닫기' : '패널 열기'}</span>
+                  <span className="edge-label">{showLeftPanel ? '패널 닫기' : '패널 열기'}</span>
                 </button>
 
-                <div style={{ ...styles.row, gridTemplateColumns: layoutColumns() }}>
+                <div className="grid-row" style={{ gridTemplateColumns: layoutColumns() }}>
                   {showLeftPanel && (
-                    <div style={styles.panel}>
-                      <div style={styles.panelHeader}>운동 카테고리</div>
-                      <div id="exercise_radio" style={styles.pillGroup}>
+                    <div className="panel">
+                      <div className="panel-header">운동 카테고리</div>
+                      <div id="exercise_radio" className="pill-group">
                         {EXERCISES.map((ex) => (
-                          <label
-                            key={ex}
-                            style={{
-                              ...styles.pill,
-                              ...(exercise === ex ? styles.pillActive : {}),
-                            }}
-                          >
+                          <label key={ex} className={`pill ${exercise === ex ? 'pill-active' : ''}`}>
                             <input
                               type="radio"
                               name="exercise"
                               value={ex}
                               checked={exercise === ex}
                               onChange={() => setExercise(ex)}
-                              style={styles.radioInput}
+                              className="radio-input"
                             />
                             {ex}
                           </label>
                         ))}
                       </div>
 
-                      <div style={{ ...styles.panelHeader, marginTop: 12 }}>채팅 (LLM)</div>
-                      <div style={{ ...styles.chatBox, height: 230 }}>
+                      <div className="panel-header" style={{ marginTop: 12 }}>채팅 (LLM)</div>
+                      <div className="chat-box chat-box-230">
                         {chatMessages.length === 0 ? (
-                          <div style={styles.placeholder}>질문을 입력하면 코칭이 시작됩니다.</div>
+                          <div className="placeholder">질문을 입력하면 코칭이 시작됩니다.</div>
                         ) : null}
                         {chatMessages.map((m, idx) => (
                           <div
                             key={idx}
-                            style={{
-                              ...styles.chatMessage,
-                              ...(m.role === 'user' ? styles.chatUser : styles.chatAssistant),
-                            }}
+                            className={`chat-message ${m.role === 'user' ? 'chat-user' : 'chat-assistant'}`}
                           >
                             <strong>{m.role === 'user' ? '사용자' : '코치'}</strong>
                             <div>{m.content}</div>
@@ -591,17 +548,14 @@
                         onChange={(e) => setChatInput(e.target.value)}
                         placeholder="운동하면서 궁금한 점을 물어보세요."
                         rows={2}
-                        style={styles.chatInput}
+                        className="chat-input"
                       />
-                      <div style={styles.chatActions}>
+                      <div className="chat-actions">
                         <button
-                          style={{
-                            ...styles.primaryButton,
-                            ...(isChatting ? styles.disabledButton : {}),
-                            flex: 1,
-                          }}
+                          className={`primary-button ${isChatting ? 'disabled-button' : ''}`}
                           onClick={handleSend}
                           disabled={isChatting}
+                          style={{ flex: 1 }}
                         >
                           {isChatting ? '전송 중…' : '전송'}
                         </button>
@@ -609,88 +563,75 @@
                     </div>
                   )}
 
-                  <div style={{ ...styles.panel, ...styles.centerPanel }}>
-                    <div style={styles.mediaRow}>
-                      <div style={styles.mediaCard}>
-                <div style={styles.mediaTitleRow}>
-                  <span style={styles.sectionTitle}>튜토리얼 영상</span>
-                  <span style={styles.mediaLabel}>
-                    {videoPinned ? '수동 영상' : youtubeReady ? '추천 영상' : '기본 영상'}
-                  </span>
-                </div>
-                <iframe
-                  width="100%"
-                  height="320"
-                  src={youtubeUrl}
-                  title="YouTube video player"
-                          frameBorder="0"
+                  <div className="panel center-panel">
+                    <div className="media-row">
+                      <div className="media-card">
+                        <div className="media-title-row">
+                          <span className="section-title">튜토리얼 영상</span>
+                          <span className="media-label">
+                            {videoPinned ? '수동 영상' : youtubeReady ? '추천 영상' : '기본 영상'}
+                          </span>
+                        </div>
+                        <iframe
+                          width="100%"
+                          height="320"
+                          src={youtubeUrl}
+                          title="YouTube video player"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen
-                          style={styles.videoFrame}
-                />
-                {youtubeError ? (
-                  <div style={styles.helperText}>{youtubeError}</div>
-                ) : null}
-                <div style={styles.videoControls}>
-                  <input
-                    value={videoInput}
-                    onChange={(e) => setVideoInput(e.target.value)}
-                    placeholder={'영상 ID/링크 또는 "검색 스쿼트 자세"'}
-                    style={styles.videoInput}
-                  />
-                  <div style={styles.videoButtons}>
-                    <button style={styles.secondaryButton} onClick={applyVideoInput}>
-                      적용
-                    </button>
-                    <button
-                      style={{ ...styles.ghostButton, opacity: videoPinned ? 1 : 0.7 }}
-                      onClick={resetVideoPin}
-                    >
-                      기본 추천
-                    </button>
-                  </div>
-                </div>
-              </div>
-                      <div style={styles.mediaCard}>
-                        <div style={styles.mediaTitleRow}>
-                          <span style={styles.sectionTitle}>웹캠 스트림</span>
-                          <span style={styles.mediaLabel}>{cameraReady ? 'Live' : '대기'}</span>
-                        </div>
-                        <video
-                          ref={videoRef}
-                          autoPlay
-                          muted
-                          playsInline
-                          style={styles.webcam}
+                          className="video-frame"
                         />
-                        {cameraError ? (
-                          <div style={styles.helperText}>{cameraError}</div>
-                        ) : null}
+                        {youtubeError ? <div className="helper-text">{youtubeError}</div> : null}
+                        <div className="video-controls">
+                          <input
+                            value={videoInput}
+                            onChange={(e) => setVideoInput(e.target.value)}
+                            placeholder={'영상 ID/링크 또는 "검색 스쿼트 자세"'}
+                            className="video-input"
+                          />
+                          <div className="video-buttons">
+                            <button className="secondary-button" onClick={applyVideoInput}>
+                              적용
+                            </button>
+                            <button
+                              className="ghost-button"
+                              style={{ opacity: videoPinned ? 1 : 0.7 }}
+                              onClick={resetVideoPin}
+                            >
+                              기본 추천
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="media-card">
+                        <div className="media-title-row">
+                          <span className="section-title">웹캠 스트림</span>
+                          <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
+                        </div>
+                        <video ref={videoRef} autoPlay muted playsInline className="webcam" />
+                        {cameraError ? <div className="helper-text">{cameraError}</div> : null}
                       </div>
                     </div>
 
-                    <div style={styles.feedbackSection}>
-                      <div style={styles.feedbackHeader}>
-                    <div>
-                      <h3 style={styles.sectionTitle}>자세 피드백</h3>
-                      <div style={styles.sectionCaption}>실시간 코칭 문구가 여기에 쌓입니다.</div>
-                    </div>
-                  <div style={styles.ttsControls}>
-                    {!ttsSupported ? (
-                      <span style={styles.ttsWarning}>브라우저가 TTS를 지원하지 않습니다.</span>
-                    ) : (
-                      <>
-                          <button
-                                style={{
-                                  ...styles.ttsButton,
-                                  ...(ttsEnabled ? styles.ttsButtonActive : {}),
-                                }}
+                    <div className="feedback-section">
+                      <div className="feedback-header">
+                        <div>
+                          <h3 className="section-title">자세 피드백</h3>
+                          <div className="section-caption">실시간 코칭 문구가 여기에 쌓입니다.</div>
+                        </div>
+                        <div className="tts-controls">
+                          {!ttsSupported ? (
+                            <span className="tts-warning">브라우저가 TTS를 지원하지 않습니다.</span>
+                          ) : (
+                            <>
+                              <button
+                                className={`tts-button ${ttsEnabled ? 'tts-button-active' : ''}`}
                                 onClick={() => setTtsEnabled((v) => !v)}
                               >
                                 {ttsEnabled ? 'TTS ON' : 'TTS OFF'}
                               </button>
                               <button
-                                style={styles.ttsReplay}
+                                className="tts-replay"
                                 onClick={() => speakFeedback(feedback)}
                                 disabled={!ttsEnabled || !ttsSupported}
                               >
@@ -700,23 +641,18 @@
                           )}
                         </div>
                       </div>
-                      <textarea
-                        value={feedback}
-                        readOnly
-                        rows={3}
-                        style={styles.feedbackBox}
-                      />
-                    <div style={styles.feedbackActions}>
-                      <div style={styles.tagRow}>
-                        <span style={styles.tag}>포커스</span>
-                        <span style={styles.tagValue}>{focusLine}</span>
+                      <textarea value={feedback} readOnly rows={3} className="feedback-box" />
+                      <div className="feedback-actions">
+                        <div className="tag-row">
+                          <span className="tag">포커스</span>
+                          <span className="tag-value">{focusLine}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div style={styles.logList}>
-                      {coachingLog.slice(0, 4).map((log, idx) => (
-                        <div key={`${log.time}-${idx}`} style={styles.logItem}>
-                          <span style={styles.logTime}>{log.time}</span>
-                            <span style={styles.logText}>{log.text}</span>
+                      <div className="log-list">
+                        {coachingLog.slice(0, 4).map((log, idx) => (
+                          <div key={`${log.time}-${idx}`} className="log-item">
+                            <span className="log-time">{log.time}</span>
+                            <span className="log-text">{log.text}</span>
                           </div>
                         ))}
                       </div>
@@ -724,35 +660,37 @@
                   </div>
 
                   {showRightPanel && (
-                    <div style={styles.panel}>
-                      <div style={styles.panelHeader}>지난 운동 기록</div>
-                      <table style={styles.table}>
+                    <div className="panel">
+                      <div className="panel-header">지난 운동 기록</div>
+                      <table className="table">
                         <thead>
                           <tr>
-                            <th style={styles.tableCell}>날짜</th>
-                            <th style={styles.tableCell}>운동</th>
-                            <th style={styles.tableCell}>세트/시간</th>
-                            <th style={styles.tableCell}>요약 피드백</th>
+                            <th className="table-cell">날짜</th>
+                            <th className="table-cell">운동</th>
+                            <th className="table-cell">세트/시간</th>
+                            <th className="table-cell">요약 피드백</th>
                           </tr>
                         </thead>
                         <tbody>
                           {history.map((h, idx) => (
                             <tr key={idx}>
-                              <td style={styles.tableCell}>{h.date}</td>
-                              <td style={styles.tableCell}>{h.exercise}</td>
-                              <td style={styles.tableCell}>{h.set}</td>
-                              <td style={styles.tableCell}>{h.summary}</td>
+                              <td className="table-cell">{h.date}</td>
+                              <td className="table-cell">{h.exercise}</td>
+                              <td className="table-cell">{h.set}</td>
+                              <td className="table-cell">{h.summary}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
 
-                      <div style={{ ...styles.panelHeader, marginTop: 16 }}>라이브 코칭 로그</div>
-                      <div style={styles.logList}>
+                      <div className="panel-header" style={{ marginTop: 16 }}>
+                        라이브 코칭 로그
+                      </div>
+                      <div className="log-list">
                         {coachingLog.map((log, idx) => (
-                          <div key={`${log.time}-${idx}-side`} style={styles.logItem}>
-                            <span style={styles.logTime}>{log.time}</span>
-                            <span style={styles.logText}>{log.text}</span>
+                          <div key={`${log.time}-${idx}-side`} className="log-item">
+                            <span className="log-time">{log.time}</span>
+                            <span className="log-text">{log.text}</span>
                           </div>
                         ))}
                       </div>
@@ -762,560 +700,17 @@
 
                 <button
                   aria-label={showRightPanel ? '오른쪽 패널 숨기기' : '오른쪽 패널 보이기'}
-                  style={{
-                    ...styles.edgeToggle,
-                    ...styles.edgeToggleRight,
-                    ...(showRightPanel ? styles.edgeToggleActive : {}),
-                  }}
+                  className={`edge-toggle edge-toggle-right ${showRightPanel ? 'edge-toggle-active' : ''}`}
                   onClick={() => setShowRightPanel((v) => !v)}
                 >
                   {showRightPanel ? '▶' : '◀'}
-                  <span style={styles.edgeLabel}>{showRightPanel ? '패널 닫기' : '패널 열기'}</span>
+                  <span className="edge-label">{showRightPanel ? '패널 닫기' : '패널 열기'}</span>
                 </button>
               </div>
             </div>
           </div>
         );
       }
-
-      const styles = {
-        appShell: {
-          position: 'relative',
-          minHeight: '100vh',
-          background: 'radial-gradient(circle at 20% 20%, #1e3a8a 0%, #0b1221 40%), radial-gradient(circle at 80% 0%, #0ea5e9 0%, #0b1221 45%)',
-          color: '#e2e8f0',
-          padding: '20px 24px 32px',
-          boxSizing: 'border-box',
-          overflowX: 'hidden',
-          fontFamily: '"Space Grotesk", "Pretendard", "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-        },
-        glow: {
-          position: 'absolute',
-          inset: 0,
-          background: 'radial-gradient(circle at 15% 40%, rgba(59, 130, 246, 0.25), transparent 35%), radial-gradient(circle at 80% 60%, rgba(94, 234, 212, 0.2), transparent 35%)',
-          pointerEvents: 'none',
-          zIndex: 0,
-        },
-        page: {
-          position: 'relative',
-          zIndex: 1,
-          maxWidth: 1280,
-          margin: '0 auto',
-        },
-        header: {
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        },
-        kicker: {
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          fontSize: 12,
-          color: '#94a3b8',
-        },
-        title: {
-          fontSize: 26,
-          fontWeight: 700,
-          margin: '4px 0 6px',
-          color: '#f8fafc',
-        },
-        subtitle: {
-          margin: 0,
-          color: '#cbd5e1',
-          fontSize: 14,
-        },
-        headerStatus: {
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-        },
-        headerNote: {
-          padding: '6px 10px',
-          borderRadius: 10,
-          background: 'rgba(255,255,255,0.08)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          color: '#e2e8f0',
-          fontSize: 12,
-        },
-        heroCard: {
-          display: 'grid',
-          gridTemplateColumns: '1.1fr 1fr',
-          gap: 12,
-          padding: 16,
-          borderRadius: 16,
-          background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-          backdropFilter: 'blur(12px)',
-          marginBottom: 14,
-        },
-        heroLabelRow: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 6,
-        },
-        label: {
-          fontSize: 12,
-          color: '#94a3b8',
-          letterSpacing: '0.04em',
-        },
-        heroExercise: {
-          fontSize: 24,
-          fontWeight: 800,
-          color: '#e0f2fe',
-        },
-        heroFocus: {
-          fontSize: 14,
-          color: '#cbd5e1',
-          marginBottom: 8,
-        },
-        badgeRow: {
-          display: 'flex',
-          gap: 8,
-          flexWrap: 'wrap',
-          marginBottom: 10,
-        },
-        heroActions: {
-          display: 'flex',
-          gap: 8,
-          flexWrap: 'wrap',
-          marginTop: 8,
-        },
-        heroStatsGrid: {
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 8,
-        },
-        statCard: {
-          padding: 12,
-          borderRadius: 12,
-          background: 'linear-gradient(120deg, rgba(59,130,246,0.18), rgba(16,185,129,0.16))',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: '#e0f2fe',
-        },
-        statLabel: {
-          fontSize: 12,
-          color: '#bfdbfe',
-          marginBottom: 4,
-        },
-        statValue: {
-          fontSize: 18,
-          fontWeight: 800,
-          lineHeight: 1.2,
-          color: '#ecfeff',
-        },
-        statMeta: {
-          fontSize: 12,
-          color: '#cbd5e1',
-          marginTop: 2,
-        },
-        toolbar: {
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-          marginBottom: 8,
-        },
-        toolbarLeft: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexWrap: 'wrap',
-        },
-        toolbarNote: {
-          color: '#cbd5e1',
-          fontSize: 12,
-        },
-        stage: {
-          position: 'relative',
-          marginTop: 4,
-        },
-        row: {
-          display: 'grid',
-          gap: 12,
-          alignItems: 'stretch',
-        },
-        panel: {
-          padding: 14,
-          borderRadius: 14,
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.07)',
-          backdropFilter: 'blur(10px)',
-          boxShadow: '0 15px 35px rgba(0,0,0,0.25)',
-        },
-        centerPanel: {
-          minWidth: 640,
-        },
-        panelHeader: {
-          fontSize: 15,
-          fontWeight: 700,
-          color: '#e5e7eb',
-          marginBottom: 8,
-        },
-        pillGroup: {
-          display: 'flex',
-          gap: 8,
-          flexWrap: 'wrap',
-          marginBottom: 12,
-        },
-        pill: {
-          borderRadius: 9999,
-          padding: '6px 12px',
-          border: '1px solid rgba(255,255,255,0.15)',
-          cursor: 'pointer',
-          fontSize: 14,
-          backgroundColor: 'rgba(255,255,255,0.08)',
-          color: '#e2e8f0',
-        },
-        pillActive: {
-          backgroundColor: 'rgba(94,234,212,0.2)',
-          borderColor: 'rgba(94,234,212,0.6)',
-          color: '#ecfeff',
-        },
-        radioInput: {
-          display: 'none',
-        },
-        chatBox: {
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 10,
-          padding: 8,
-          overflowY: 'auto',
-          backgroundColor: 'rgba(15,23,42,0.6)',
-        },
-        chatMessage: {
-          borderRadius: 8,
-          padding: 8,
-          marginBottom: 6,
-          fontSize: 14,
-        },
-        chatUser: {
-          backgroundColor: 'rgba(59,130,246,0.2)',
-          alignSelf: 'flex-start',
-        },
-        chatAssistant: {
-          backgroundColor: 'rgba(16,185,129,0.18)',
-          alignSelf: 'flex-end',
-        },
-        chatInput: {
-          width: '100%',
-          marginTop: 8,
-          padding: 8,
-          borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.08)',
-          backgroundColor: 'rgba(15,23,42,0.7)',
-          color: '#e2e8f0',
-          resize: 'vertical',
-          fontSize: 14,
-          boxSizing: 'border-box',
-        },
-        chatActions: {
-          display: 'flex',
-          gap: 8,
-          marginTop: 8,
-        },
-        mediaRow: {
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 12,
-        },
-        mediaCard: {
-          borderRadius: 12,
-          padding: 10,
-          background: 'rgba(15,23,42,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
-        },
-        mediaTitleRow: {
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 6,
-        },
-        mediaLabel: {
-          fontSize: 12,
-          color: '#cbd5e1',
-          padding: '4px 8px',
-          borderRadius: 8,
-          background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.08)',
-        },
-        webcam: {
-          width: '100%',
-          height: 320,
-          borderRadius: 12,
-          backgroundColor: '#0f172a',
-          objectFit: 'cover',
-          transform: 'scaleX(-1)',
-          transformOrigin: 'center',
-        },
-        videoFrame: {
-          borderRadius: 12,
-          overflow: 'hidden',
-        },
-        videoControls: {
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-        },
-        videoInput: {
-          width: '100%',
-          padding: 10,
-          borderRadius: 10,
-          border: '1px solid rgba(255,255,255,0.12)',
-          background: 'rgba(255,255,255,0.04)',
-          color: '#e5e7eb',
-          fontSize: 13,
-          boxSizing: 'border-box',
-        },
-        videoButtons: {
-          display: 'flex',
-          gap: 8,
-          flexWrap: 'wrap',
-        },
-        feedbackSection: {
-          marginTop: 12,
-          borderRadius: 12,
-          border: '1px solid rgba(255,255,255,0.08)',
-          background: 'rgba(15,23,42,0.8)',
-          padding: 12,
-        },
-        feedbackHeader: {
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-        },
-        sectionTitle: {
-          fontSize: 16,
-          fontWeight: 700,
-          margin: 0,
-          color: '#e5e7eb',
-        },
-        sectionCaption: {
-          color: '#94a3b8',
-          fontSize: 12,
-        },
-        ttsControls: {
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        },
-        ttsButton: {
-          padding: '6px 10px',
-          borderRadius: 10,
-          border: '1px solid rgba(255,255,255,0.12)',
-          backgroundColor: 'rgba(255,255,255,0.06)',
-          color: '#e2e8f0',
-          cursor: 'pointer',
-          fontSize: 12,
-          fontWeight: 700,
-        },
-        ttsButtonActive: {
-          backgroundColor: 'rgba(16,185,129,0.3)',
-          borderColor: 'rgba(16,185,129,0.7)',
-          color: '#ecfeff',
-        },
-        ttsReplay: {
-          padding: '6px 10px',
-          borderRadius: 10,
-          border: '1px solid rgba(255,255,255,0.12)',
-          backgroundColor: 'rgba(59,130,246,0.2)',
-          color: '#e0f2fe',
-          cursor: 'pointer',
-          fontSize: 12,
-          fontWeight: 700,
-        },
-        ttsWarning: {
-          color: '#fca5a5',
-          fontSize: 12,
-          fontWeight: 700,
-        },
-        feedbackBox: {
-          width: '100%',
-          padding: 10,
-          borderRadius: 10,
-          border: '1px solid rgba(255,255,255,0.12)',
-          backgroundColor: 'rgba(15,23,42,0.9)',
-          color: '#e2e8f0',
-          fontSize: 14,
-          resize: 'vertical',
-          boxSizing: 'border-box',
-          marginTop: 8,
-        },
-        feedbackActions: {
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginTop: 8,
-          flexWrap: 'wrap',
-        },
-        tagRow: {
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-        },
-        tag: {
-          padding: '4px 8px',
-          borderRadius: 8,
-          background: 'rgba(59,130,246,0.18)',
-          border: '1px solid rgba(59,130,246,0.35)',
-          color: '#e0f2fe',
-          fontSize: 12,
-        },
-        tagValue: {
-          color: '#cbd5e1',
-          fontSize: 13,
-        },
-        logList: {
-          marginTop: 10,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-        },
-        logItem: {
-          display: 'grid',
-          gridTemplateColumns: '70px 1fr',
-          gap: 8,
-          alignItems: 'center',
-          padding: '8px 10px',
-          borderRadius: 10,
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.06)',
-        },
-        logTime: {
-          fontSize: 12,
-          color: '#a5b4fc',
-        },
-        logText: {
-          fontSize: 13,
-          color: '#e5e7eb',
-        },
-        table: {
-          width: '100%',
-          borderCollapse: 'collapse',
-          backgroundColor: 'rgba(15,23,42,0.7)',
-          borderRadius: 10,
-          overflow: 'hidden',
-        },
-        tableCell: {
-          border: '1px solid rgba(255,255,255,0.08)',
-          padding: '6px 8px',
-          textAlign: 'left',
-          color: '#e2e8f0',
-          fontSize: 13,
-        },
-        helperText: {
-          marginTop: 6,
-          color: '#fca5a5',
-          fontSize: 12,
-        },
-        primaryButton: {
-          padding: '8px 14px',
-          borderRadius: 12,
-          border: '1px solid rgba(94,234,212,0.6)',
-          background: 'linear-gradient(120deg, rgba(16,185,129,0.3), rgba(94,234,212,0.25))',
-          color: '#ecfeff',
-          cursor: 'pointer',
-          fontWeight: 800,
-          fontSize: 14,
-        },
-        secondaryButton: {
-          padding: '8px 12px',
-          borderRadius: 12,
-          border: '1px solid rgba(255,255,255,0.12)',
-          background: 'rgba(255,255,255,0.08)',
-          color: '#e2e8f0',
-          cursor: 'pointer',
-          fontWeight: 700,
-          fontSize: 13,
-        },
-        ghostButton: {
-          padding: '9px 12px',
-          borderRadius: 12,
-          border: '1px solid rgba(255,255,255,0.12)',
-          background: 'linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))',
-          color: '#e2e8f0',
-          cursor: 'pointer',
-          fontSize: 13,
-          boxShadow: '0 10px 22px rgba(0,0,0,0.22)',
-        },
-        disabledButton: {
-          opacity: 0.6,
-          cursor: 'not-allowed',
-        },
-        badge: {
-          padding: '4px 10px',
-          borderRadius: 9999,
-          border: '1px solid rgba(255,255,255,0.12)',
-          fontSize: 12,
-          fontWeight: 700,
-        },
-        badgeOk: {
-          background: 'rgba(74,222,128,0.18)',
-          color: '#bbf7d0',
-          borderColor: 'rgba(74,222,128,0.4)',
-        },
-        badgeWarn: {
-          background: 'rgba(251,191,36,0.18)',
-          color: '#fef9c3',
-          borderColor: 'rgba(251,191,36,0.4)',
-        },
-        badgeDanger: {
-          background: 'rgba(248,113,113,0.2)',
-          color: '#fecdd3',
-          borderColor: 'rgba(248,113,113,0.45)',
-        },
-        placeholder: {
-          color: '#94a3b8',
-          fontSize: 13,
-        },
-        edgeToggle: {
-          position: 'absolute',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: 46,
-          height: 46,
-          borderRadius: '50%',
-          border: '1px solid rgba(255,255,255,0.12)',
-          background: 'linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
-          color: '#e2e8f0',
-          cursor: 'pointer',
-          fontSize: 15,
-          fontWeight: 800,
-          boxShadow: '0 12px 26px rgba(0,0,0,0.28)',
-          display: 'grid',
-          placeItems: 'center',
-          backdropFilter: 'blur(8px)',
-          transition: 'all 140ms ease',
-        },
-        edgeToggleActive: {
-          background: 'linear-gradient(135deg, #38bdf8, #6366f1)',
-          color: '#0b1221',
-          borderColor: 'transparent',
-          boxShadow: '0 14px 30px rgba(99,102,241,0.4)',
-        },
-        edgeToggleLeft: {
-          left: -18,
-          zIndex: 5,
-        },
-        edgeToggleRight: {
-          right: -18,
-          zIndex: 5,
-        },
-        edgeLabel: {
-          position: 'absolute',
-          bottom: -26,
-          fontSize: 11,
-          color: '#cbd5e1',
-          whiteSpace: 'nowrap',
-          opacity: 0.85,
-        },
-      };
 
       ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
