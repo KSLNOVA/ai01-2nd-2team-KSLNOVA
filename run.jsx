@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import './run.css';
+const { useEffect, useRef, useState } = React;
 
-const env = typeof import.meta !== 'undefined' ? import.meta.env : {};
+// window.ENV는 index.html에서 설정됨
+const env = window.ENV || {};
 const fallbackEnv = typeof process !== 'undefined' ? process.env : {};
 
 const YOUTUBE_API_KEY =
+  env?.YOUTUBE_API_KEY ||
   env?.VITE_YOUTUBE_API_KEY ||
   env?.REACT_APP_YOUTUBE_API_KEY ||
   fallbackEnv?.VITE_YOUTUBE_API_KEY ||
@@ -12,6 +13,7 @@ const YOUTUBE_API_KEY =
   '';
 
 const OPENAI_API_KEY =
+  env?.OPENAI_API_KEY ||
   env?.VITE_OPENAI_API_KEY ||
   env?.REACT_APP_OPENAI_API_KEY ||
   fallbackEnv?.VITE_OPENAI_API_KEY ||
@@ -24,30 +26,11 @@ const EXERCISE_FOCUS = {
   스쿼트: ['무릎 트래킹', '엉덩이 힌지'],
 };
 
-const FEEDBACK_PRESETS = {
-  플랭크: [
-    '코어를 단단하게 잠그고 어깨를 살짝 뒤로 열어 주세요.',
-    '골반이 말리지 않도록 시선은 45도 아래를 바라봅니다.',
-    '발끝부터 정수리까지 일직선으로 만들고 호흡을 길게 유지하세요.',
-  ],
-  스쿼트: [
-    '무릎과 발끝이 같은 방향을 보도록 천천히 내려옵니다.',
-    '엉덩이를 먼저 뒤로 빼며 척추는 중립을 유지하세요.',
-    '가슴을 열고 무릎이 안쪽으로 말리지 않게 의식합니다.',
-  ],
-};
-
 const FALLBACK_YT = 'https://www.youtube.com/embed/bm5Zbmr34yw';
 const YT_QUERY_MAP = {
   플랭크: '플랭크 운동 자세',
   스쿼트: '스쿼트 운동 자세',
 };
-
-const DUMMY_HISTORY = [
-  { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
-  { date: '2025-12-03', exercise: '플랭크', set: '2세트', summary: '어깨 살짝 내려주기' },
-  { date: '2025-12-02', exercise: '스쿼트', set: '4세트', summary: '무릎 안쪽 모임 주의' },
-];
 
 const timeLabel = () =>
   new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
@@ -55,7 +38,7 @@ const timeLabel = () =>
 function App() {
   const [exercise, setExercise] = useState('플랭크');
   const [youtubeUrl, setYoutubeUrl] = useState(FALLBACK_YT);
-  const [history, setHistory] = useState(DUMMY_HISTORY.filter((h) => h.exercise === '플랭크'));
+  const [history, setHistory] = useState([]);
   const [feedback, setFeedback] = useState('웹캠을 켜면 자세 피드백이 여기에 표시됩니다.');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -70,10 +53,7 @@ function App() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [sessionState] = useState('대기 중');
-  const [coachingLog, setCoachingLog] = useState([
-    { time: '12:30', exercise: '플랭크', text: '호흡을 길게 유지하고 코어를 잠금.' },
-    { time: '12:24', exercise: '스쿼트', text: '무릎이 안쪽으로 말리지 않도록 신경 쓰기.' },
-  ]);
+  const [coachingLog, setCoachingLog] = useState([]);
   const [voices, setVoices] = useState([]);
   const [voiceId, setVoiceId] = useState('');
   const [voiceLabel, setVoiceLabel] = useState('');
@@ -94,6 +74,88 @@ function App() {
     return '1fr';
   };
 
+  const [isRecording, setIsRecording] = useState(false);
+  const [repCount, setRepCount] = useState(0);
+  const wsRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // WebSocket 연결 및 프레임 전송
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/feedback');
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket Connected');
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'FEEDBACK') {
+        // 실시간 피드백 처리
+        if (data.instant_feedback) {
+          setFeedback(data.instant_feedback);
+        }
+        // 코치 피드백 (LLM) 처리
+        if (data.coach_feedback) {
+          appendLog(data.coach_feedback);
+          speakFeedback(data.coach_feedback);
+        }
+        // 렙 카운트 업데이트
+        setRepCount(data.reps);
+        setIsRecording(data.is_recording);
+
+        // 처리된 이미지 표시 (선택 사항: 원본 비디오 위에 오버레이하거나 교체)
+        // 현재는 원본 비디오를 유지하고 피드백만 텍스트로 표시
+      } else if (data.type === 'REPORT') {
+        // 최종 리포트 처리
+        appendLog(`[종합 리포트] ${data.content}`);
+        setFeedback('운동이 종료되었습니다. 리포트를 확인하세요.');
+      }
+    };
+
+    ws.onclose = () => console.log('WebSocket Disconnected');
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
+  // 프레임 전송 루프
+  useEffect(() => {
+    if (!cameraReady || !isRecording) return;
+
+    const interval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && videoRef.current && canvasRef.current) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        wsRef.current.send(base64);
+      }
+    }, 100); // 10 FPS
+
+    return () => clearInterval(interval);
+  }, [cameraReady, isRecording]);
+
+  const toggleRecording = () => {
+    if (!wsRef.current) return;
+    if (isRecording) {
+      wsRef.current.send('STOP_RECORDING');
+      setIsRecording(false);
+    } else {
+      wsRef.current.send('START_RECORDING');
+      setIsRecording(true);
+      setRepCount(0);
+      setCoachingLog([]); // 로그 초기화
+      setFeedback('운동을 시작합니다! 자세를 잡아주세요.');
+    }
+  };
+
   const appendLog = (text) =>
     setCoachingLog((prev) => [
       { time: timeLabel(), exercise, text },
@@ -106,6 +168,10 @@ function App() {
   };
 
   useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(`SET_EXERCISE:${exercise}`);
+    }
+
     let cancelled = false;
 
     async function fetchYoutube() {
@@ -156,10 +222,8 @@ function App() {
     }
 
     fetchYoutube();
-    setHistory(DUMMY_HISTORY.filter((h) => h.exercise === exercise));
-    const defaultFeedback =
-      (FEEDBACK_PRESETS[exercise] && FEEDBACK_PRESETS[exercise][0]) ||
-      `${exercise} 자세 분석 예시: 코어를 조금 더 조여 주세요.`;
+    setHistory([]);
+    const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
     setFeedback(defaultFeedback);
     appendLog(`${exercise} 세션 준비 완료. 포커스: ${focusLine}`);
 
@@ -448,14 +512,14 @@ function App() {
           </div>
           <div className="hero-stats">
             <div className="stat-card">
-              <div className="stat-label">가장 최근 코칭</div>
-              <div className="stat-value">{truncate(feedback, 38)}</div>
-              <div className="stat-meta">{timeLabel()}</div>
+              <div className="stat-label">실시간 상태</div>
+              <div className="stat-value">{isRecording ? '운동 중' : '대기 중'}</div>
+              <div className="stat-meta">{isRecording ? `${repCount} Reps` : '시작 버튼을 누르세요'}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">채팅 교환</div>
-              <div className="stat-value">{chatMessages.length || 0} 회</div>
-              <div className="stat-meta">LLM 응답 대기 시 상태 표시</div>
+              <div className="stat-label">현재 카운트</div>
+              <div className="stat-value">{repCount} 회</div>
+              <div className="stat-meta">정확한 자세 유지</div>
             </div>
             <div className="stat-card">
               <div className="stat-label">오늘의 포커스</div>
@@ -581,8 +645,25 @@ function App() {
                     <span className="section-title">웹캠 스트림</span>
                     <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
                   </div>
-                  <video ref={videoRef} autoPlay muted playsInline className="webcam" />
+                  <div style={{ position: 'relative' }}>
+                    <video ref={videoRef} autoPlay muted playsInline className="webcam" />
+                    <canvas ref={canvasRef} style={{ display: 'none' }} />
+                    {isRecording && (
+                      <div className="recording-indicator">
+                        <span className="rec-dot">●</span> REC
+                      </div>
+                    )}
+                  </div>
                   {cameraError ? <div className="helper-text">{cameraError}</div> : null}
+                  <div className="camera-controls" style={{ marginTop: 10, display: 'flex', gap: 10 }}>
+                    <button
+                      className={`primary-button ${isRecording ? 'stop-btn' : 'start-btn'}`}
+                      onClick={toggleRecording}
+                      style={{ flex: 1, backgroundColor: isRecording ? '#ff4444' : '#4CAF50' }}
+                    >
+                      {isRecording ? '운동 종료 (리포트 생성)' : '운동 시작'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -685,4 +766,4 @@ function App() {
   );
 }
 
-export default App;
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
