@@ -65,6 +65,7 @@ function App() {
   const [sessionStart, setSessionStart] = useState(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [ttsHistory, setTtsHistory] = useState([]);
+  const [analysisNote, setAnalysisNote] = useState('분석 프레임을 기다리는 중…');
 
   const videoRef = useRef(null);
   const synthRef = useRef(null);
@@ -75,6 +76,7 @@ function App() {
   const exerciseRef = useRef('플랭크');
   const repRef = useRef(0);
   const durationRef = useRef(0);
+  const lastFrameTsRef = useRef(0);
 
   const youtubeReady = Boolean(YOUTUBE_API_KEY);
 
@@ -116,6 +118,17 @@ function App() {
   useEffect(() => {
     processedFrameRef.current = processedFrame;
   }, [processedFrame]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isRecording) return;
+      const gap = Date.now() - (lastFrameTsRef.current || 0);
+      if (gap > 4000 && !processedFrameRef.current) {
+        setAnalysisNote('분석 프레임이 도착하지 않았습니다. 서버 실행/WS 연결을 확인하세요.');
+      }
+    }, 1200);
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   useEffect(() => {
     if (!sessionStart) {
@@ -161,6 +174,8 @@ function App() {
         setIsRecording(data.is_recording);
         if (data.image) {
           setProcessedFrame(data.image);
+          lastFrameTsRef.current = Date.now();
+          setAnalysisNote('서버 분석 프레임 수신 중');
         }
       } else if (data.type === 'REPORT') {
         // 최종 리포트 처리
@@ -212,11 +227,14 @@ function App() {
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const base64 = canvas.toDataURL('image/jpeg', 0.8);
-        if (!processedFrameRef.current) {
-          setProcessedFrame(base64);
+        if (canvas.width && canvas.height) {
+          const base64 = canvas.toDataURL('image/jpeg', 0.8);
+          if (!processedFrameRef.current) {
+            setProcessedFrame(base64);
+            setAnalysisNote('카메라 프레임 표시 중 (분석 대기)…');
+          }
+          wsRef.current.send(base64);
         }
-        wsRef.current.send(base64);
       }
     }, 100); // 10 FPS
 
@@ -231,6 +249,7 @@ function App() {
       }
       wsRef.current.send('STOP_RECORDING');
       setIsRecording(false);
+      setAnalysisNote('분석 프레임을 기다리는 중…');
     } else {
       wsRef.current.send('START_RECORDING');
       setIsRecording(true);
@@ -238,6 +257,7 @@ function App() {
       repRef.current = 0;
       setCoachingLog([]); // 로그 초기화
       setProcessedFrame('');
+      setAnalysisNote('카메라 프레임을 불러오는 중…');
       const startedAt = Date.now();
       setSessionStart(startedAt);
       durationRef.current = 0;
@@ -269,6 +289,7 @@ function App() {
     repRef.current = 0;
     setRepCount(0);
     setProcessedFrame('');
+    setAnalysisNote('분석 프레임을 기다리는 중…');
     setCoachingLog([]);
     const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
     setFeedback(defaultFeedback);
@@ -771,7 +792,7 @@ function App() {
                           <img src={processedFrame} alt="분석 결과 프레임" className="analysis-frame" />
                         ) : (
                           <div className="placeholder analysis-placeholder">
-                            실시간 분석 프레임이 여기에 표시됩니다.
+                            {analysisNote}
                           </div>
                         )}
                       </div>
