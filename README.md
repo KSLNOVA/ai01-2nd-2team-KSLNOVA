@@ -88,11 +88,11 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 | 작업 항목                  | 시작 날짜   | 종료 날짜   | 기간(일) |
 |---------------------------|------------|------------|---------|
 | 아이디어 회의               | 2025-12-02 | 2025-12-04 | 3       |
-| 미정                       | 2025-01-08 | 2025-01-14 | 7       |
-| 미정                       | 2025-01-15 | 2025-01-21 | 7       |
-| 미정                       | 2025-01-22 | 2025-01-28 | 7       |
-| 미정                       | 2025-01-29 | 2025-02-04 | 7       |
-| 미정                       | 2025-02-05 | 2025-02-07 | 3       |
+| CV                       | 2025-01-08 | 2025-01-14 | 7       |
+| LLM                       | 2025-01-15 | 2025-01-21 | 7       |
+| TTS                       | 2025-01-22 | 2025-01-28 | 7       |
+| 피드백                      | 2025-01-29 | 2025-02-04 | 7       |
+| UI                       | 2025-02-05 | 2025-02-07 | 3       |
 | 프로젝트 발표               | 2025-12-10 | 2025-12-10 | 1       |
 
 -----------------------------
@@ -157,23 +157,35 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 ## 2. 기술 스택
 ## 📚 TECH STACKS
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white"/>
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Uvicorn-1E90FF?style=for-the-badge&logo=python&logoColor=white"/>
-</p>
+**Frontend**
 <p align="center">
   <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=0B1E2D"/>
   <img src="https://img.shields.io/badge/Babel-F9DC3E?style=for-the-badge&logo=babel&logoColor=000"/>
   <img src="https://img.shields.io/badge/WebSocket-111827?style=for-the-badge&logo=websocket&logoColor=white"/>
   <img src="https://img.shields.io/badge/Web%20Speech%20API-7C3AED?style=for-the-badge&logoColor=white"/>
-</p>
-<p align="center">
-  <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white"/>
-  <img src="https://img.shields.io/badge/MediaPipe-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
-  <img src="https://img.shields.io/badge/YOLO-000000?style=for-the-badge&logo=github&logoColor=white"/>
-  <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white"/>
   <img src="https://img.shields.io/badge/YouTube%20Data%20API-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
+</p>
+
+**Backend**
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white"/>
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Uvicorn-1E90FF?style=for-the-badge&logo=python&logoColor=white"/>
+  <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white"/>
+</p>
+
+**CV / 분석**
+<p align="center">
+  <img src="https://img.shields.io/badge/MediaPipe-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
+  <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white"/>
+  <img src="https://img.shields.io/badge/YOLO-000000?style=for-the-badge&logo=github&logoColor=white"/>
+</p>
+
+**운영/도구**
+<p align="center">
+  <img src="https://img.shields.io/badge/dotenv-00B894?style=for-the-badge&logo=dotenv&logoColor=white"/>
+  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Static%20Hosting-0F172A?style=for-the-badge&logo=html5&logoColor=white"/>
 </p>
 
 
