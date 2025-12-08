@@ -74,6 +74,7 @@ function App() {
   const [sessionDuration, setSessionDuration] = useState(0);
   const [ttsHistory, setTtsHistory] = useState([]);
   const [analysisNote, setAnalysisNote] = useState('분석 프레임을 기다리는 중…');
+  const [feedbackExercise, setFeedbackExercise] = useState('');
 
   const videoRef = useRef(null);
   const synthRef = useRef(null);
@@ -177,11 +178,13 @@ function App() {
         // 실시간 피드백 처리
         if (data.instant_feedback) {
           setFeedback(data.instant_feedback);
+          setFeedbackExercise(exerciseRef.current);
         }
         // 코치 피드백 (LLM) 처리
         if (data.coach_feedback) {
+          const exNow = exerciseRef.current;
           appendLog(data.coach_feedback);
-          speakFeedback(data.coach_feedback);
+          speakFeedback(data.coach_feedback, exNow);
         }
         // 렙 카운트 업데이트
         setRepCount(data.reps);
@@ -279,6 +282,7 @@ function App() {
       durationRef.current = 0;
       setSessionDuration(0);
       setFeedback('운동을 시작합니다! 자세를 잡아주세요.');
+      setFeedbackExercise(exerciseRef.current);
     }
   };
 
@@ -307,6 +311,7 @@ function App() {
     setProcessedFrame('');
     setAnalysisNote('분석 프레임을 기다리는 중…');
     setTtsHistory([]);
+    setFeedbackExercise(exerciseRef.current);
     setCoachingLog([]);
     const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
     setFeedback(defaultFeedback);
@@ -440,11 +445,12 @@ function App() {
     };
   }, []);
 
-  const speakFeedback = (text) => {
+  const speakFeedback = (text, exerciseName) => {
     if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported) return;
     const say = (text || '').trim();
     if (!say) return;
     if (lastSpokenRef.current === say) return;
+    if (exerciseName && exerciseName !== exerciseRef.current) return;
     const now = Date.now();
     const speaking = synthRef.current.speaking;
     const cooldown = now - (lastSpokenAtRef.current || 0);
@@ -457,15 +463,16 @@ function App() {
     synthRef.current.speak(u);
     lastSpokenRef.current = say;
     lastSpokenAtRef.current = now;
-    setTtsHistory((prev) => [{ time: timeLabel(), exercise: exerciseRef.current, text: say }, ...prev].slice(0, 6));
+    const usedExercise = exerciseName || exerciseRef.current;
+    setTtsHistory((prev) => [{ time: timeLabel(), exercise: usedExercise, text: say }, ...prev].slice(0, 6));
   };
 
   useEffect(() => {
     if (!ttsEnabled) return;
     if (!feedback || !feedback.trim()) return;
     if (lastSpokenRef.current === feedback.trim()) return;
-    speakFeedback(feedback);
-  }, [feedback, ttsEnabled]);
+    speakFeedback(feedback, feedbackExercise);
+  }, [feedback, feedbackExercise, ttsEnabled]);
 
   const normalizeEmbedUrl = (val) => {
     const raw = (val || '').trim();
@@ -629,7 +636,7 @@ function App() {
         data && data.choices && data.choices[0] && data.choices[0].message
           ? data.choices[0].message.content
           : '응답을 파싱하지 못했습니다.';
-      const botMsg = { role: 'assistant', content: replyText };
+      const botMsg = { role: 'assistant', content: replyText, exercise: exerciseRef.current };
       setChatMessages((prev) => [...prev, botMsg]);
       appendLog('LLM 코칭 응답이 도착했습니다.');
     } catch (err) {
@@ -637,6 +644,7 @@ function App() {
       const botMsg = {
         role: 'assistant',
         content: `LLM 호출 중 오류가 발생했습니다: ${err.message || err}`,
+        exercise: exerciseRef.current,
       };
       setChatMessages((prev) => [...prev, botMsg]);
     } finally {
@@ -823,9 +831,15 @@ function App() {
                         muted
                         playsInline
                         className={`webcam ${processedFrame ? 'webcam-hidden' : ''}`}
+                        style={{ transform: 'scaleX(1)' }}
                       />
                       {processedFrame ? (
-                        <img src={processedFrame} alt="분석 결과 프레임" className="analysis-frame" />
+                        <img
+                          src={processedFrame}
+                          alt="분석 결과 프레임"
+                          className="analysis-frame"
+                          style={{ transform: 'scaleX(1)' }}
+                        />
                       ) : null}
                       <canvas ref={canvasRef} style={{ display: 'none' }} />
                       {isRecording && (
