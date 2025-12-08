@@ -184,22 +184,22 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 ## 📚 TECH STACKS
 
 <p align="center">
-  <!-- 1줄 -->
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white"/>
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Uvicorn-1E90FF?style=for-the-badge&logo=python&logoColor=white"/>
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=0B1E2D"/>
+  <img src="https://img.shields.io/badge/Babel-F9DC3E?style=for-the-badge&logo=babel&logoColor=000"/>
+  <img src="https://img.shields.io/badge/WebSocket-111827?style=for-the-badge&logo=websocket&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Web%20Speech%20API-7C3AED?style=for-the-badge&logoColor=white"/>
+</p>
+<p align="center">
   <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white"/>
-</p>
-
-<p align="center">
-  <!-- 2줄 -->
-  <img src="https://img.shields.io/badge/YOLO-000000?style=for-the-badge&logo=&logoColor=white"/>
   <img src="https://img.shields.io/badge/MediaPipe-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
-</p>
-
-<p align="center">
-  <!-- 3줄 -->
-  <img src="https://img.shields.io/badge/TTS-FFAA00?style=for-the-badge&logo=&logoColor=white"/>
-  <img src="https://img.shields.io/badge/vLLM-8A2BE2?style=for-the-badge&logo=&logoColor=white"/>
-  <img src="https://img.shields.io/badge/Gradio-7A1FFF?style=for-the-badge&logo=gradio&logoColor=white"/>
+  <img src="https://img.shields.io/badge/YOLO-000000?style=for-the-badge&logo=github&logoColor=white"/>
+  <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white"/>
+  <img src="https://img.shields.io/badge/YouTube%20Data%20API-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
 </p>
 
 
