@@ -144,7 +144,15 @@ class SquatAnalyzer:
         # LLM 호출 (별도 스레드)
         def run_llm():
             try:
-                prompt = f"사용자가 스쿼트 중 '{most_common_error}' 실수를 했습니다. 짧고 친근하게 교정 팁을 한 문장으로 주세요."
+                prompt = f"""
+                당신은 스쿼트 코치입니다. 아래 실수를 한 사용자가 있습니다.
+                - 실수: {most_common_error}
+
+                지침:
+                - 한국어, 10자 내외, 한 문장만.
+                - 친근하지만 직관적으로, 불필요한 설명 금지.
+                - 정상이라고 판단되면 반드시 "정상 자세입니다." 한 문장만 말하세요.
+                """
                 response = openai.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "system", "content": "헬스 트레이너"}, {"role": "user", "content": prompt}]
