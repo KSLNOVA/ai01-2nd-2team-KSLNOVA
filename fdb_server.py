@@ -14,8 +14,18 @@ app.add_middleware(
 )
 
 # OpenAI Client
-OPENAI_API_KEY = "OPENAI_API_KEY"
+OPENAI_API_KEY = "OPENAI_API_KEY"  # TODO: 실제 키 주입 또는 os.getenv 사용
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# 짧은 피드백만 남기는 헬퍼
+def shorten_feedback(text: str, limit: int = 28) -> str:
+    if not text:
+        return ""
+    first = text.split("\n")[0].split("。")[0].split(".")[0].split("!")[0].split("?")[0]
+    trimmed = first.strip()
+    if len(trimmed) > limit:
+        trimmed = trimmed[:limit].rstrip() + "…"
+    return trimmed
 
 @app.post("/feedback")
 async def feedback(request: Request):
@@ -54,4 +64,4 @@ async def feedback(request: Request):
     )
 
     message = res.choices[0].message.content
-    return {"feedback": message}
+    return {"feedback": shorten_feedback(message)}
