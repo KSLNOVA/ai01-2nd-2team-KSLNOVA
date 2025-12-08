@@ -326,6 +326,40 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.single-video {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-frame-shell {
+  position: relative;
+  height: 280px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.analysis-shell {
+  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.2), rgba(15, 23, 42, 0.94));
+}
+
+.analysis-note {
+  font-size: 12px;
+  color: #cbd5e1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.analysis-frame {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .webcam {
   width: 100%;
   height: 100%;
@@ -335,6 +369,13 @@
   object-fit: cover;
   transform: scaleX(-1);
   transform-origin: center;
+}
+
+.webcam-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .recording-indicator {
@@ -367,26 +408,10 @@
   min-width: 640px;
 }
 
-.dual-video {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
-}
-
-.video-pane {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 8px;
-}
-
-.pane-header {
-  font-size: 12px;
-  color: #cbd5e1;
-  margin-bottom: 6px;
+.single-video {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .video-frame-shell {

@@ -27,6 +27,7 @@ const EXERCISE_FOCUS = {
 };
 
 const FALLBACK_YT = 'https://www.youtube.com/embed/bm5Zbmr34yw';
+const FALLBACK_YT_ALT = 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw';
 const YT_QUERY_MAP = {
   플랭크: '플랭크 운동 자세',
   스쿼트: '스쿼트 운동 자세',
@@ -84,12 +85,16 @@ function App() {
   const repRef = useRef(0);
   const durationRef = useRef(0);
   const lastFrameTsRef = useRef(0);
+  const lastSpokenAtRef = useRef(0);
+  const videoErrorRef = useRef(0);
 
   const youtubeReady = Boolean(YOUTUBE_API_KEY);
 
   const focusLine = (EXERCISE_FOCUS[exercise] || []).join(' · ') || '폼 안정성 유지';
   const historyForExercise = history.filter((item) => item.exercise === exercise);
   const displayHistory = historyForExercise.length ? historyForExercise : history;
+  const filteredCoachingLog = coachingLog.filter((log) => log.exercise === exercise);
+  const filteredTtsHistory = ttsHistory.filter((log) => log.exercise === exercise);
   const sessionMeta = isRecording
     ? `${repCount} Reps · ${Math.max(sessionDuration, 1)}초`
     : '시작 버튼을 누르세요';
@@ -105,6 +110,7 @@ function App() {
   const [repCount, setRepCount] = useState(0);
   const wsRef = useRef(null);
   const canvasRef = useRef(null);
+  const youtubeBlockedRef = useRef(false);
 
   useEffect(() => {
     exerciseRef.current = exercise;
@@ -161,6 +167,7 @@ function App() {
     ws.onopen = () => {
       if (!active) return;
       setWsStatus('connected');
+      ws.send(`SET_EXERCISE:${exerciseRef.current || exercise}`);
     };
 
     ws.onmessage = (event) => {
@@ -299,6 +306,7 @@ function App() {
     setRepCount(0);
     setProcessedFrame('');
     setAnalysisNote('분석 프레임을 기다리는 중…');
+    setTtsHistory([]);
     setCoachingLog([]);
     const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
     setFeedback(defaultFeedback);
@@ -310,7 +318,7 @@ function App() {
 
     async function fetchYoutube() {
       // 기본 영상 먼저 깔아두기 (API 실패 시 바로 표시)
-      setYoutubeUrl(FALLBACK_YT);
+      setYoutubeUrl(videoErrorRef.current > 0 ? FALLBACK_YT_ALT : FALLBACK_YT);
       if (videoPinned) {
         setYoutubeError('수동으로 고정된 영상입니다. 기본 추천을 보려면 해제하세요.');
         return;
@@ -320,6 +328,11 @@ function App() {
       if (!YOUTUBE_API_KEY) {
         setYoutubeUrl(FALLBACK_YT);
         setYoutubeError('.env에 YOUTUBE_API_KEY가 없어 기본 영상을 사용합니다.');
+        return;
+      }
+      if (youtubeBlockedRef.current) {
+        setYoutubeUrl(FALLBACK_YT);
+        setYoutubeError('YouTube API가 차단되어 기본 영상을 사용합니다. 링크/ID를 직접 입력해 주세요.');
         return;
       }
 
@@ -352,8 +365,9 @@ function App() {
         if (!cancelled) setYoutubeUrl(`https://www.youtube.com/embed/${videoId}`);
       } catch (err) {
         console.error('YouTube API error:', err);
+        youtubeBlockedRef.current = true;
         setYoutubeUrl(FALLBACK_YT);
-        setYoutubeError('YouTube API 호출 중 오류가 발생하여 기본 영상을 사용합니다.');
+        setYoutubeError('YouTube API 호출이 차단되었습니다. 링크/ID를 직접 입력해 주세요.');
       }
     }
 
@@ -430,7 +444,11 @@ function App() {
     if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported) return;
     const say = (text || '').trim();
     if (!say) return;
-    if (synthRef.current.cancel) synthRef.current.cancel();
+    if (lastSpokenRef.current === say) return;
+    const now = Date.now();
+    const speaking = synthRef.current.speaking;
+    const cooldown = now - (lastSpokenAtRef.current || 0);
+    if (speaking || cooldown < 4000) return;
     const u = new SpeechSynthesisUtterance(say);
     u.lang = 'ko-KR';
     if (voiceRef.current) u.voice = voiceRef.current;
@@ -438,7 +456,8 @@ function App() {
     u.pitch = 0.95;
     synthRef.current.speak(u);
     lastSpokenRef.current = say;
-    setTtsHistory((prev) => [{ time: timeLabel(), text: say }, ...prev].slice(0, 6));
+    lastSpokenAtRef.current = now;
+    setTtsHistory((prev) => [{ time: timeLabel(), exercise: exerciseRef.current, text: say }, ...prev].slice(0, 6));
   };
 
   useEffect(() => {
@@ -465,6 +484,10 @@ function App() {
       setYoutubeError('YouTube 키가 없어 검색을 실행할 수 없습니다.');
       return;
     }
+    if (youtubeBlockedRef.current) {
+      setYoutubeError('YouTube API가 차단되어 검색을 건너뜁니다. 영상 ID/링크를 직접 입력하세요.');
+      return;
+    }
     const params = new URLSearchParams({
       part: 'snippet',
       q,
@@ -488,7 +511,9 @@ function App() {
       }
     } catch (err) {
       console.error('YouTube search error:', err);
-      setYoutubeError('영상 검색 중 오류가 발생했습니다.');
+      youtubeBlockedRef.current = true;
+      setYoutubeUrl(FALLBACK_YT);
+      setYoutubeError('YouTube API 호출이 차단되었습니다. 영상 ID/링크를 직접 입력하세요.');
     }
   };
 
@@ -619,6 +644,14 @@ function App() {
     }
   };
 
+  const handleVideoError = () => {
+    videoErrorRef.current += 1;
+    setVideoPinned(false);
+    const next = videoErrorRef.current > 1 ? FALLBACK_YT_ALT : FALLBACK_YT;
+    setYoutubeUrl(next);
+    setYoutubeError('영상 재생에 실패해 기본 영상으로 전환했습니다. 필요하면 다른 영상 ID/링크를 입력하세요.');
+  };
+
   return (
     <div className="app-shell">
       <div className="glow" />
@@ -747,6 +780,7 @@ function App() {
                     title="YouTube video player"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
+                    onError={handleVideoError}
                     className="video-frame"
                   />
                   {youtubeError ? <div className="helper-text">{youtubeError}</div> : null}
@@ -773,7 +807,7 @@ function App() {
                 </div>
                 <div className="media-card analysis-card">
                   <div className="media-title-row">
-                    <span className="section-title">웹캠 & 분석 뷰</span>
+                    <span className="section-title">라이브 + 분석 뷰</span>
                     <div className="media-labels">
                       <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
                       <span className={`media-label ${wsStatus === 'connected' ? 'media-label-live' : ''}`}>
@@ -781,31 +815,26 @@ function App() {
                       </span>
                     </div>
                   </div>
-                  <div className="dual-video">
-                    <div className="video-pane">
-                      <div className="pane-header">라이브</div>
-                      <div className="video-frame-shell">
-                        <video ref={videoRef} autoPlay muted playsInline className="webcam" />
-                        <canvas ref={canvasRef} style={{ display: 'none' }} />
-                        {isRecording && (
-                          <div className="recording-indicator">
-                            <span className="rec-dot">●</span> REC
-                          </div>
-                        )}
-                      </div>
+                  <div className="single-video">
+                    <div className="video-frame-shell analysis-shell">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className={`webcam ${processedFrame ? 'webcam-hidden' : ''}`}
+                      />
+                      {processedFrame ? (
+                        <img src={processedFrame} alt="분석 결과 프레임" className="analysis-frame" />
+                      ) : null}
+                      <canvas ref={canvasRef} style={{ display: 'none' }} />
+                      {isRecording && (
+                        <div className="recording-indicator">
+                          <span className="rec-dot">●</span> REC
+                        </div>
+                      )}
                     </div>
-                    <div className="video-pane analysis-pane">
-                      <div className="pane-header">분석 뷰</div>
-                      <div className="video-frame-shell analysis-shell">
-                        {processedFrame ? (
-                          <img src={processedFrame} alt="분석 결과 프레임" className="analysis-frame" />
-                        ) : (
-                          <div className="placeholder analysis-placeholder">
-                            {analysisNote}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <div className="analysis-note">{processedFrame ? '분석 프레임 표시 중' : analysisNote}</div>
                   </div>
                   {cameraError ? <div className="helper-text">{cameraError}</div> : null}
                   <div className="camera-controls">
@@ -859,10 +888,10 @@ function App() {
                   <span className="tag-value">{ttsHistory.length ? `${ttsHistory.length}개 기록` : '아직 없음'}</span>
                 </div>
                 <div className="tts-history">
-                  {ttsHistory.length === 0 ? (
+                  {filteredTtsHistory.length === 0 ? (
                     <div className="placeholder">TTS가 재생되면 여기에서 최근 코칭 문구를 확인할 수 있어요.</div>
                   ) : (
-                    ttsHistory.map((item, idx) => (
+                    filteredTtsHistory.map((item, idx) => (
                       <div key={`${item.time}-${idx}`} className="tts-history-item">
                         <span className="tts-history-time">{item.time}</span>
                         <span className="tts-history-text">{item.text}</span>
@@ -871,11 +900,11 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className="log-list">
-                {coachingLog.slice(0, 4).length === 0 ? (
-                  <div className="placeholder">운동을 시작하면 코칭 로그가 여기에 표시됩니다.</div>
-                ) : (
-                    coachingLog.slice(0, 4).map((log, idx) => (
+                <div className="log-list">
+                  {filteredCoachingLog.slice(0, 4).length === 0 ? (
+                    <div className="placeholder">운동을 시작하면 코칭 로그가 여기에 표시됩니다.</div>
+                  ) : (
+                    filteredCoachingLog.slice(0, 4).map((log, idx) => (
                       <div key={`${log.time}-${idx}`} className="log-item">
                         <span className="log-time">{log.time}</span>
                         <span className="log-text">{log.text}</span>
@@ -922,7 +951,7 @@ function App() {
                   라이브 코칭 로그
                 </div>
                 <div className="log-list">
-                  {coachingLog.map((log, idx) => (
+                  {filteredCoachingLog.map((log, idx) => (
                     <div key={`${log.time}-${idx}-side`} className="log-item">
                       <span className="log-time">{log.time}</span>
                       <span className="log-text">{log.text}</span>
