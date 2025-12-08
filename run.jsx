@@ -33,12 +33,14 @@ const YT_QUERY_MAP = {
   스쿼트: '스쿼트 운동 자세',
 };
 const WS_URL =
-  (typeof window !== 'undefined' &&
-    window.location &&
-    window.location.origin &&
-    window.location.origin.startsWith('http'))
-    ? window.location.origin.replace(/^http/, 'ws') + '/ws/feedback'
-    : 'ws://localhost:8000/ws/feedback';
+  (typeof window !== 'undefined' && window.WS_URL)
+    ? window.WS_URL
+    : (typeof window !== 'undefined' &&
+        window.location &&
+        window.location.origin &&
+        window.location.origin.startsWith('http'))
+      ? window.location.origin.replace(/^http/, 'ws') + '/ws/feedback'
+      : 'ws://localhost:8000/ws/feedback';
 
 const DEFAULT_HISTORY = [
   { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
