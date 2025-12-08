@@ -36,6 +36,17 @@ mp_drawing = mp.solutions.drawing_utils
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
+# 짧은 피드백만 남기는 헬퍼
+def shorten_feedback(text: str, limit: int = 28) -> str:
+    if not text:
+        return ""
+    # 첫 문장만 취하고 길면 잘라내기
+    first = text.split("\n")[0].split("。")[0].split(".")[0].split("!")[0].split("?")[0]
+    trimmed = first.strip()
+    if len(trimmed) > limit:
+        trimmed = trimmed[:limit].rstrip() + "…"
+    return trimmed
+
 # ---------------------------------------------------------
 # 2. 유틸리티 함수
 # ---------------------------------------------------------
@@ -53,6 +64,8 @@ def calculate_angle(a, b, c):
 class SquatAnalyzer:
     def __init__(self):
         self.reset_session()
+        self.last_llm_time = 0
+        self.llm_cooldown = 2.5  # seconds
         
     def reset_session(self):
         self.is_recording = False
@@ -63,6 +76,7 @@ class SquatAnalyzer:
         self.current_rep_errors = [] # 현재 Rep의 에러들
         self.last_feedback_time = 0
         self.sequence_buffer = deque(maxlen=30)
+        self.coach_feedback = ""
         
     def start_recording(self):
         self.is_recording = True
@@ -158,12 +172,12 @@ class SquatAnalyzer:
                     messages=[{"role": "system", "content": "헬스 트레이너"}, {"role": "user", "content": prompt}]
                 )
                 advice = response.choices[0].message.content
-                
+
                 # WebSocket으로 전송 (비동기 루프에 메시지 주입은 복잡하므로, 여기선 print만 하거나 구조 변경 필요)
                 # 간단하게 구현하기 위해 전역 변수나 큐를 쓸 수도 있지만, 
                 # FastAPI WebSocket은 async라 스레드에서 직접 send가 까다로움.
                 # 여기서는 'coach_feedback' 변수에 저장해두고 메인 루프에서 가져가게 함.
-                self.coach_feedback = advice
+                self.coach_feedback = shorten_feedback(advice)
             except Exception as e:
                 print(f"LLM Error: {e}")
 
@@ -233,6 +247,11 @@ class SquatAnalyzer:
             l_knee     = get_coords(25); r_knee     = get_coords(26)
             l_ankle    = get_coords(27); r_ankle    = get_coords(28)
             l_ear      = get_coords(7);  r_ear      = get_coords(8) # 귀 좌표 추가
+            # 추가: 몸통/무릎 각도 계산 (fdb_server 스타일)
+            left_torso_angle = calculate_angle(l_shoulder, l_hip, l_knee)
+            right_torso_angle = calculate_angle(r_shoulder, r_hip, r_knee)
+            left_knee_angle = calculate_angle(l_hip, l_knee, l_ankle)
+            right_knee_angle = calculate_angle(r_hip, r_knee, r_ankle)
 
             # 운동별 로직 분기
             current_ex = getattr(self, 'current_exercise', '스쿼트')
@@ -258,6 +277,14 @@ class SquatAnalyzer:
                     self.is_squat_down = False
                     self.min_knee_angle = 180
                     self.analyze_rep_completion(None)
+                # LLM 피드백 (쿨다운 적용)
+                if self.is_recording:
+                    self.maybe_llm_feedback({
+                        "left_torso": left_torso_angle,
+                        "right_torso": right_torso_angle,
+                        "left_knee": left_knee_angle,
+                        "right_knee": right_knee_angle,
+                    })
 
             elif current_ex == '플랭크':
                 # 플랭크 로직 (버티기 운동이라 Rep 카운트 대신 시간이나 유지 상태 체크가 적절하나, 여기선 에러 감지만)
@@ -273,6 +300,44 @@ class SquatAnalyzer:
             mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
         return image, instant_feedback, coach_feedback, self.rep_count
+
+    def maybe_llm_feedback(self, angles: dict):
+        """fdb_server 스타일 LLM 호출을 WebSocket 흐름에 녹여서 coach_feedback을 갱신"""
+        if not openai.api_key:
+            return
+        now = time.time()
+        if now - self.last_llm_time < self.llm_cooldown:
+            return
+        self.last_llm_time = now
+
+        def run_llm():
+            prompt = f"""
+            당신은 스쿼트 자세 전문가입니다.
+            다음 관절 각도 데이터를 보고 문제 여부를 판단하고 피드백 해주세요.
+            규칙:
+            - 자세가 정상이면 반드시 "정상 자세입니다." 한 문장만 말하기.
+            - 문제가 있으면 한국어 10자 내외, 직관적 한 문장만.
+            - 불필요한 설명 금지.
+
+            왼쪽 상체 각도: {angles.get('left_torso', 0):.1f}
+            오른쪽 상체 각도: {angles.get('right_torso', 0):.1f}
+            왼쪽 무릎 각도: {angles.get('left_knee', 0):.1f}
+            오른쪽 무릎 각도: {angles.get('right_knee', 0):.1f}
+            """
+            try:
+                res = openai.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "너는 스쿼트 자세 전문가야, 내 자세 중 잘못된 부분을 지적해줘"},
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                msg = res.choices[0].message.content
+                self.coach_feedback = shorten_feedback(msg)
+            except Exception as e:
+                print(f"LLM Error (angles): {e}")
+
+        threading.Thread(target=run_llm, daemon=True).start()
 
     def generate_final_report(self):
         if not self.session_history:
