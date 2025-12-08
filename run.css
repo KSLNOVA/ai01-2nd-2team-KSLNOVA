@@ -367,8 +367,6 @@
   border-radius: 12px;
   background-color: #0f172a;
   object-fit: cover;
-  transform: scaleX(-1);
-  transform-origin: center;
 }
 
 .webcam-hidden {
