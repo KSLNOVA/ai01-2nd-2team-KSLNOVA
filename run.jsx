@@ -32,13 +32,19 @@ const YT_QUERY_MAP = {
   스쿼트: '스쿼트 운동 자세',
 };
 
+const DEFAULT_HISTORY = [
+  { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
+  { date: '2025-12-03', exercise: '플랭크', set: '2세트', summary: '어깨 살짝 내려주기' },
+  { date: '2025-12-02', exercise: '스쿼트', set: '4세트', summary: '무릎 안쪽 모임 주의' },
+];
+
 const timeLabel = () =>
   new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
 
 function App() {
   const [exercise, setExercise] = useState('플랭크');
   const [youtubeUrl, setYoutubeUrl] = useState(FALLBACK_YT);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(DEFAULT_HISTORY);
   const [feedback, setFeedback] = useState('웹캠을 켜면 자세 피드백이 여기에 표시됩니다.');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -57,15 +63,43 @@ function App() {
   const [voices, setVoices] = useState([]);
   const [voiceId, setVoiceId] = useState('');
   const [voiceLabel, setVoiceLabel] = useState('');
+  const [processedFrame, setProcessedFrame] = useState('');
+  const [wsStatus, setWsStatus] = useState('connecting');
+  const [sessionStart, setSessionStart] = useState(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
 
   const videoRef = useRef(null);
   const synthRef = useRef(null);
   const voiceRef = useRef(null);
   const lastSpokenRef = useRef('');
+  const ttsEnabledRef = useRef(false);
+  const exerciseRef = useRef('플랭크');
+  const repRef = useRef(0);
+  const durationRef = useRef(0);
 
   const youtubeReady = Boolean(YOUTUBE_API_KEY);
 
   const focusLine = (EXERCISE_FOCUS[exercise] || []).join(' · ') || '폼 안정성 유지';
+  const historyForExercise = history.filter((item) => item.exercise === exercise);
+  const displayHistory = historyForExercise.length ? historyForExercise : history;
+  const statusChips = [
+    { label: '웹캠', value: cameraReady ? 'ON' : '대기', tone: cameraReady ? 'ok' : 'warn' },
+    { label: 'LLM', value: OPENAI_API_KEY ? '준비' : '키 필요', tone: OPENAI_API_KEY ? 'ok' : 'warn' },
+    { label: 'YouTube', value: youtubeReady ? '추천' : '기본', tone: youtubeReady ? 'ok' : 'warn' },
+    {
+      label: 'TTS',
+      value: !ttsSupported ? '미지원' : ttsEnabled ? 'ON' : 'OFF',
+      tone: !ttsSupported ? 'danger' : ttsEnabled ? 'ok' : 'warn',
+    },
+    {
+      label: '실시간',
+      value: wsStatus === 'connected' ? 'WS 연결' : wsStatus === 'connecting' ? '연결 중' : '오프라인',
+      tone: wsStatus === 'connected' ? 'ok' : 'warn',
+    },
+  ];
+  const sessionMeta = isRecording
+    ? `${repCount} Reps · ${Math.max(sessionDuration, 1)}초`
+    : '시작 버튼을 누르세요';
 
   const layoutColumns = () => {
     if (showLeftPanel && showRightPanel) return '280px 1fr 280px';
@@ -79,16 +113,50 @@ function App() {
   const wsRef = useRef(null);
   const canvasRef = useRef(null);
 
+  useEffect(() => {
+    exerciseRef.current = exercise;
+  }, [exercise]);
+
+  useEffect(() => {
+    repRef.current = repCount;
+  }, [repCount]);
+
+  useEffect(() => {
+    durationRef.current = sessionDuration;
+  }, [sessionDuration]);
+
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
+  useEffect(() => {
+    if (!sessionStart) {
+      setSessionDuration(0);
+      return;
+    }
+    const tick = () => {
+      setSessionDuration(Math.max(1, Math.round((Date.now() - sessionStart) / 1000)));
+    };
+    tick();
+    if (!isRecording) return;
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [sessionStart, isRecording]);
+
   // WebSocket 연결 및 프레임 전송
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:8000/ws/feedback');
     wsRef.current = ws;
+    setWsStatus('connecting');
+    let active = true;
 
     ws.onopen = () => {
-      console.log('WebSocket Connected');
+      if (!active) return;
+      setWsStatus('connected');
     };
 
     ws.onmessage = (event) => {
+      if (!active) return;
       const data = JSON.parse(event.data);
       if (data.type === 'FEEDBACK') {
         // 실시간 피드백 처리
@@ -103,19 +171,41 @@ function App() {
         // 렙 카운트 업데이트
         setRepCount(data.reps);
         setIsRecording(data.is_recording);
-
-        // 처리된 이미지 표시 (선택 사항: 원본 비디오 위에 오버레이하거나 교체)
-        // 현재는 원본 비디오를 유지하고 피드백만 텍스트로 표시
+        if (data.image) {
+          setProcessedFrame(data.image);
+        }
       } else if (data.type === 'REPORT') {
         // 최종 리포트 처리
         appendLog(`[종합 리포트] ${data.content}`);
         setFeedback('운동이 종료되었습니다. 리포트를 확인하세요.');
+        const now = new Date();
+        setHistory((prev) => [
+          {
+            date: now.toLocaleDateString('ko-KR'),
+            exercise: exerciseRef.current,
+            set: durationRef.current ? `${durationRef.current}초` : `${repRef.current}회`,
+            summary: truncate(data.content, 72),
+          },
+          ...prev,
+        ].slice(0, 20));
+        setSessionStart(null);
+        setSessionDuration(0);
+        durationRef.current = 0;
       }
     };
 
-    ws.onclose = () => console.log('WebSocket Disconnected');
+    ws.onerror = () => {
+      if (!active) return;
+      setWsStatus('disconnected');
+    };
+
+    ws.onclose = () => {
+      if (!active) return;
+      setWsStatus('disconnected');
+    };
 
     return () => {
+      active = false;
       ws.close();
     };
   }, []);
@@ -145,20 +235,29 @@ function App() {
   const toggleRecording = () => {
     if (!wsRef.current) return;
     if (isRecording) {
+      if (sessionStart) {
+        setSessionDuration(Math.max(1, Math.round((Date.now() - sessionStart) / 1000)));
+      }
       wsRef.current.send('STOP_RECORDING');
       setIsRecording(false);
     } else {
       wsRef.current.send('START_RECORDING');
       setIsRecording(true);
       setRepCount(0);
+      repRef.current = 0;
       setCoachingLog([]); // 로그 초기화
+      setProcessedFrame('');
+      const startedAt = Date.now();
+      setSessionStart(startedAt);
+      durationRef.current = 0;
+      setSessionDuration(0);
       setFeedback('운동을 시작합니다! 자세를 잡아주세요.');
     }
   };
 
   const appendLog = (text) =>
     setCoachingLog((prev) => [
-      { time: timeLabel(), exercise, text },
+      { time: timeLabel(), exercise: exerciseRef.current, text },
       ...prev,
     ].slice(0, 8));
 
@@ -170,8 +269,22 @@ function App() {
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(`SET_EXERCISE:${exercise}`);
+      wsRef.current.send('STOP_RECORDING');
     }
+    setIsRecording(false);
+    setSessionStart(null);
+    setSessionDuration(0);
+    durationRef.current = 0;
+    repRef.current = 0;
+    setRepCount(0);
+    setProcessedFrame('');
+    setCoachingLog([]);
+    const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
+    setFeedback(defaultFeedback);
+    appendLog(`${exercise} 세션 준비 완료. 포커스: ${focusLine}`);
+  }, [exercise, focusLine]);
 
+  useEffect(() => {
     let cancelled = false;
 
     async function fetchYoutube() {
@@ -222,15 +335,11 @@ function App() {
     }
 
     fetchYoutube();
-    setHistory([]);
-    const defaultFeedback = '웹캠을 켜면 자세 피드백이 여기에 표시됩니다.';
-    setFeedback(defaultFeedback);
-    appendLog(`${exercise} 세션 준비 완료. 포커스: ${focusLine}`);
 
     return () => {
       cancelled = true;
     };
-  }, [exercise, videoPinned, focusLine]);
+  }, [exercise, videoPinned]);
 
   useEffect(() => {
     async function initCamera() {
@@ -298,7 +407,7 @@ function App() {
   }, []);
 
   const speakFeedback = (text) => {
-    if (!ttsEnabled || !synthRef.current || !ttsSupported) return;
+    if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported) return;
     const say = (text || '').trim();
     if (!say) return;
     if (synthRef.current.cancel) synthRef.current.cancel();
@@ -317,6 +426,15 @@ function App() {
     if (lastSpokenRef.current === feedback.trim()) return;
     speakFeedback(feedback);
   }, [feedback, ttsEnabled]);
+
+  const handleVoiceChange = (id) => {
+    setVoiceId(id);
+    const pick = voices.find((v) => (v.name || v.voiceURI) === id);
+    if (pick) {
+      voiceRef.current = pick;
+      setVoiceLabel(pick.name || '코치 음성');
+    }
+  };
 
   const normalizeEmbedUrl = (val) => {
     const raw = (val || '').trim();
@@ -509,17 +627,25 @@ function App() {
               <span className="hero-exercise">{exercise}</span>
             </div>
             <div className="hero-focus">{focusLine}</div>
+            <div className="status-strip">
+              {statusChips.map((chip) => (
+                <div key={chip.label} className={`status-pill tone-${chip.tone}`}>
+                  <span className="status-label">{chip.label}</span>
+                  <span className="status-value">{chip.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="hero-stats">
             <div className="stat-card">
               <div className="stat-label">실시간 상태</div>
               <div className="stat-value">{isRecording ? '운동 중' : '대기 중'}</div>
-              <div className="stat-meta">{isRecording ? `${repCount} Reps` : '시작 버튼을 누르세요'}</div>
+              <div className="stat-meta">{sessionMeta}</div>
             </div>
             <div className="stat-card">
               <div className="stat-label">현재 카운트</div>
               <div className="stat-value">{repCount} 회</div>
-              <div className="stat-meta">정확한 자세 유지</div>
+              <div className="stat-meta">{sessionDuration ? `${sessionDuration}초 진행` : '운동 준비'}</div>
             </div>
             <div className="stat-card">
               <div className="stat-label">오늘의 포커스</div>
@@ -532,6 +658,15 @@ function App() {
         <div className="toolbar">
           <div className="toolbar-left">
             <span className="toolbar-note">카메라 허용 시 오른쪽에 실시간 스트림이 표시됩니다.</span>
+            <span className="micro-pill muted">{videoPinned ? '튜토리얼: 수동' : '튜토리얼: 자동 추천'}</span>
+          </div>
+          <div className="toolbar-right">
+            <span className={`micro-pill ${cameraReady ? 'pill-live' : 'pill-idle'}`}>
+              {cameraReady ? '카메라 준비' : '카메라 대기'}
+            </span>
+            <span className={`micro-pill ${wsStatus === 'connected' ? 'pill-live' : 'pill-idle'}`}>
+              {wsStatus === 'connected' ? '실시간 연결' : 'WS 재연결 대기'}
+            </span>
           </div>
         </div>
 
@@ -640,22 +775,44 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div className="media-card">
+                <div className="media-card analysis-card">
                   <div className="media-title-row">
-                    <span className="section-title">웹캠 스트림</span>
-                    <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
+                    <span className="section-title">웹캠 & 분석 뷰</span>
+                    <div className="media-labels">
+                      <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
+                      <span className={`media-label ${wsStatus === 'connected' ? 'media-label-live' : ''}`}>
+                        {wsStatus === 'connected' ? 'WS 연결' : 'WS 대기'}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ position: 'relative' }}>
-                    <video ref={videoRef} autoPlay muted playsInline className="webcam" />
-                    <canvas ref={canvasRef} style={{ display: 'none' }} />
-                    {isRecording && (
-                      <div className="recording-indicator">
-                        <span className="rec-dot">●</span> REC
+                  <div className="dual-video">
+                    <div className="video-pane">
+                      <div className="pane-header">라이브</div>
+                      <div className="video-frame-shell">
+                        <video ref={videoRef} autoPlay muted playsInline className="webcam" />
+                        <canvas ref={canvasRef} style={{ display: 'none' }} />
+                        {isRecording && (
+                          <div className="recording-indicator">
+                            <span className="rec-dot">●</span> REC
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+                    <div className="video-pane analysis-pane">
+                      <div className="pane-header">분석 뷰</div>
+                      <div className="video-frame-shell analysis-shell">
+                        {processedFrame ? (
+                          <img src={processedFrame} alt="분석 결과 프레임" className="analysis-frame" />
+                        ) : (
+                          <div className="placeholder analysis-placeholder">
+                            실시간 분석 프레임이 여기에 표시됩니다.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   {cameraError ? <div className="helper-text">{cameraError}</div> : null}
-                  <div className="camera-controls" style={{ marginTop: 10, display: 'flex', gap: 10 }}>
+                  <div className="camera-controls">
                     <button
                       className={`primary-button ${isRecording ? 'stop-btn' : 'start-btn'}`}
                       onClick={toggleRecording}
@@ -663,52 +820,76 @@ function App() {
                     >
                       {isRecording ? '운동 종료 (리포트 생성)' : '운동 시작'}
                     </button>
+                    <div className="micro-meter">
+                      <span className="micro-pill">{repCount} Reps</span>
+                      <span className="micro-pill">{sessionDuration ? `${sessionDuration}초` : '대기'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="feedback-section">
-                <div className="feedback-header">
-                  <div>
-                    <h3 className="section-title">자세 피드백</h3>
-                    <div className="section-caption">실시간 코칭 문구가 여기에 쌓입니다.</div>
-                  </div>
-                  <div className="tts-controls">
-                    {!ttsSupported ? (
-                      <span className="tts-warning">브라우저가 TTS를 지원하지 않습니다.</span>
-                    ) : (
-                      <>
-                        <button
-                          className={`tts-button ${ttsEnabled ? 'tts-button-active' : ''}`}
-                          onClick={() => setTtsEnabled((v) => !v)}
-                        >
-                          {ttsEnabled ? 'TTS ON' : 'TTS OFF'}
-                        </button>
-                        <button
-                          className="tts-replay"
-                          onClick={() => speakFeedback(feedback)}
-                          disabled={!ttsEnabled || !ttsSupported}
-                        >
-                          다시 듣기
-                        </button>
-                      </>
-                    )}
-                  </div>
+            <div className="feedback-section">
+              <div className="feedback-header">
+                <div>
+                  <h3 className="section-title">자세 피드백</h3>
+                  <div className="section-caption">실시간 코칭 문구가 여기에 쌓입니다.</div>
                 </div>
-                <textarea value={feedback} readOnly rows={3} className="feedback-box" />
-                <div className="feedback-actions">
-                  <div className="tag-row">
-                    <span className="tag">포커스</span>
-                    <span className="tag-value">{focusLine}</span>
-                  </div>
+                <div className="tts-controls">
+                  {!ttsSupported ? (
+                    <span className="tts-warning">브라우저가 TTS를 지원하지 않습니다.</span>
+                  ) : (
+                    <>
+                      <button
+                        className={`tts-button ${ttsEnabled ? 'tts-button-active' : ''}`}
+                        onClick={() => setTtsEnabled((v) => !v)}
+                      >
+                        {ttsEnabled ? 'TTS ON' : 'TTS OFF'}
+                      </button>
+                      <button
+                        className="tts-replay"
+                        onClick={() => speakFeedback(feedback)}
+                        disabled={!ttsEnabled || !ttsSupported}
+                      >
+                        다시 듣기
+                      </button>
+                      {voices.length ? (
+                        <select
+                          value={voiceId}
+                          onChange={(e) => handleVoiceChange(e.target.value)}
+                          className="voice-select"
+                        >
+                          {voices.map((v) => (
+                            <option key={v.name || v.voiceURI} value={v.name || v.voiceURI}>
+                              {v.name || v.voiceURI}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {voiceLabel ? <span className="voice-label">{voiceLabel}</span> : null}
+                    </>
+                  )}
                 </div>
-                <div className="log-list">
-                  {coachingLog.slice(0, 4).map((log, idx) => (
-                    <div key={`${log.time}-${idx}`} className="log-item">
-                      <span className="log-time">{log.time}</span>
-                      <span className="log-text">{log.text}</span>
-                    </div>
-                  ))}
+              </div>
+              <textarea value={feedback} readOnly rows={3} className="feedback-box" />
+              <div className="feedback-actions">
+                <div className="tag-row">
+                  <span className="tag">포커스</span>
+                  <span className="tag-value">{focusLine}</span>
+                  <span className="tag tag-soft">세션</span>
+                  <span className="tag-value">{isRecording ? `${sessionDuration}초 진행 중` : '준비 완료'}</span>
+                </div>
+              </div>
+              <div className="log-list">
+                {coachingLog.slice(0, 4).length === 0 ? (
+                  <div className="placeholder">운동을 시작하면 코칭 로그가 여기에 표시됩니다.</div>
+                  ) : (
+                    coachingLog.slice(0, 4).map((log, idx) => (
+                      <div key={`${log.time}-${idx}`} className="log-item">
+                        <span className="log-time">{log.time}</span>
+                        <span className="log-text">{log.text}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -726,14 +907,22 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((h, idx) => (
-                      <tr key={idx}>
-                        <td className="table-cell">{h.date}</td>
-                        <td className="table-cell">{h.exercise}</td>
-                        <td className="table-cell">{h.set}</td>
-                        <td className="table-cell">{h.summary}</td>
+                    {displayHistory.length === 0 ? (
+                      <tr>
+                        <td className="table-cell" colSpan={4}>
+                          운동 기록이 곧 여기에 채워집니다.
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      displayHistory.map((h, idx) => (
+                        <tr key={idx}>
+                          <td className="table-cell">{h.date}</td>
+                          <td className="table-cell">{h.exercise}</td>
+                          <td className="table-cell">{h.set}</td>
+                          <td className="table-cell">{truncate(h.summary, 70)}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
 
