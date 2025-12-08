@@ -34,42 +34,42 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   <tr>
     <td></td>
     <td align="center">
-      <img src="https://placehold.co/150x150" alt="김채원" width="150" height="150">
+      <img src="src/김채원.png" alt="김채원" width="150" height="150">
     </td>
     <td align="center">
-      <img src="https://placehold.co/150x150" alt="손지원" width="150" height="150">
+      <img src="src/손지원.png" alt="손지원" width="150" height="150">
     </td>
     <td align="center">
-      <img src="https://placehold.co/150x150" alt="이주연" width="150" height="150">
+      <img src="src/이주연.png" alt="이주연" width="150" height="150">
     </td>
     <td align="center">
-      <img src="https://placehold.co/150x150" alt="이진배" width="150" height="150">
+      <img src="src/이진배.png" alt="이진배" width="150" height="150">
     </td>
   </tr>
   <tr>
-    <td>역할</td>
-    <td>TTS / 팀장</td>
-    <td>UI</td>
-    <td>CV</td>
-    <td>LLM</td>
+    <td align="center">역할</td>
+    <td align="center">TTS / 팀장</td>
+    <td align="center">UI</td>
+    <td align="center">CV</td>
+    <td align="center">LLM</td>
   </tr>
 <tr>
-  <td>담당 모듈</td>
-  <td>
+  <td align="center">담당 모듈</td>
+  <td align="center">
     자세 스코어링<br/>
     TTS 엔진 선정<br/>
     텍스트→음성 변환
   </td>
-  <td>
+  <td align="center">
     웹 UI<br/>
     웹캠
   </td>
-  <td>
+  <td align="center">
     YOLO<br/>
     MediaPipe<br/>
     관절각도계산
   </td>
-  <td>
+  <td align="center">
     vLLM 세팅<br/>
     유튜브 추천 키워드
   </td>
