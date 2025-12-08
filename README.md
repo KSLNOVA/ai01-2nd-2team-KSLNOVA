@@ -48,8 +48,8 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   </tr>
   <tr>
     <td align="center">역할</td>
-    <td align="center">TTS / 팀장</td>
-    <td align="center">UI</td>
+    <td align="center">TTS · 팀장</td>
+    <td align="center">UI / Frontend</td>
     <td align="center">CV</td>
     <td align="center">LLM</td>
   </tr>
@@ -57,21 +57,21 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   <td align="center">담당 모듈</td>
   <td align="center">
     자세 스코어링<br/>
-    TTS 엔진 선정<br/>
+    TTS(Web Speech API) 제어<br/>
     텍스트→음성 변환
   </td>
   <td align="center">
-    웹 UI<br/>
-    웹캠
+    웹 UI(React + WS)<br/>
+    웹캠/튜토리얼 뷰
   </td>
   <td align="center">
-    YOLO<br/>
-    MediaPipe<br/>
-    관절각도계산
+    MediaPipe Pose<br/>
+    관절 각도 계산<br/>
+    (YOLO 확장)
   </td>
   <td align="center">
-    vLLM 세팅<br/>
-    유튜브 추천 키워드
+    OpenAI API 코칭/리포트<br/>
+    유튜브 추천 키워드/검색
   </td>
 </tr>
 
