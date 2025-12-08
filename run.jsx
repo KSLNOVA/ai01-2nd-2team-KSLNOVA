@@ -31,6 +31,13 @@ const YT_QUERY_MAP = {
   플랭크: '플랭크 운동 자세',
   스쿼트: '스쿼트 운동 자세',
 };
+const WS_URL =
+  (typeof window !== 'undefined' &&
+    window.location &&
+    window.location.origin &&
+    window.location.origin.startsWith('http'))
+    ? window.location.origin.replace(/^http/, 'ws') + '/ws/feedback'
+    : 'ws://localhost:8000/ws/feedback';
 
 const DEFAULT_HISTORY = [
   { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
@@ -146,7 +153,7 @@ function App() {
 
   // WebSocket 연결 및 프레임 전송
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/feedback');
+    const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
     setWsStatus('connecting');
     let active = true;
@@ -200,11 +207,13 @@ function App() {
     ws.onerror = () => {
       if (!active) return;
       setWsStatus('disconnected');
+      setAnalysisNote('WebSocket 연결이 끊어졌습니다. 서버 실행/포트를 확인하세요.');
     };
 
     ws.onclose = () => {
       if (!active) return;
       setWsStatus('disconnected');
+      setAnalysisNote('WebSocket 연결이 종료되었습니다. 서버 실행/포트를 확인하세요.');
     };
 
     return () => {
