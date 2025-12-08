@@ -71,6 +71,7 @@ function App() {
   const voiceRef = useRef(null);
   const lastSpokenRef = useRef('');
   const ttsEnabledRef = useRef(false);
+  const processedFrameRef = useRef('');
   const exerciseRef = useRef('플랭크');
   const repRef = useRef(0);
   const durationRef = useRef(0);
@@ -111,6 +112,10 @@ function App() {
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
+
+  useEffect(() => {
+    processedFrameRef.current = processedFrame;
+  }, [processedFrame]);
 
   useEffect(() => {
     if (!sessionStart) {
@@ -208,6 +213,9 @@ function App() {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        if (!processedFrameRef.current) {
+          setProcessedFrame(base64);
+        }
         wsRef.current.send(base64);
       }
     }, 100); // 10 FPS
@@ -271,6 +279,8 @@ function App() {
     let cancelled = false;
 
     async function fetchYoutube() {
+      // 기본 영상 먼저 깔아두기 (API 실패 시 바로 표시)
+      setYoutubeUrl(FALLBACK_YT);
       if (videoPinned) {
         setYoutubeError('수동으로 고정된 영상입니다. 기본 추천을 보려면 해제하세요.');
         return;
@@ -623,14 +633,6 @@ function App() {
           <div className="toolbar-left">
             <span className="toolbar-note">카메라 허용 시 오른쪽에 실시간 스트림이 표시됩니다.</span>
             <span className="micro-pill muted">{videoPinned ? '튜토리얼: 수동' : '튜토리얼: 자동 추천'}</span>
-          </div>
-          <div className="toolbar-right">
-            <span className={`micro-pill ${cameraReady ? 'pill-live' : 'pill-idle'}`}>
-              {cameraReady ? '카메라 준비' : '카메라 대기'}
-            </span>
-            <span className={`micro-pill ${wsStatus === 'connected' ? 'pill-live' : 'pill-idle'}`}>
-              {wsStatus === 'connected' ? '실시간 연결' : 'WS 재연결 대기'}
-            </span>
           </div>
         </div>
 
