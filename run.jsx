@@ -896,38 +896,9 @@ function App() {
                 </div>
               </div>
               <textarea value={feedback} readOnly rows={3} className="feedback-box" />
-              <div className="feedback-actions">
-                <div className="tag-row">
-                  <span className="tag">최근 TTS 코칭</span>
-                  <span className="tag-value">{ttsHistory.length ? `${ttsHistory.length}개 기록` : '아직 없음'}</span>
-                </div>
-                <div className="tts-history">
-                  {filteredTtsHistory.length === 0 ? (
-                    <div className="placeholder">TTS가 재생되면 여기에서 최근 코칭 문구를 확인할 수 있어요.</div>
-                  ) : (
-                    filteredTtsHistory.map((item, idx) => (
-                      <div key={`${item.time}-${idx}`} className="tts-history-item">
-                        <span className="tts-history-time">{item.time}</span>
-                        <span className="tts-history-text">{item.text}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-                <div className="log-list">
-                  {filteredCoachingLog.slice(0, 4).length === 0 ? (
-                    <div className="placeholder">운동을 시작하면 코칭 로그가 여기에 표시됩니다.</div>
-                  ) : (
-                    filteredCoachingLog.slice(0, 4).map((log, idx) => (
-                      <div key={`${log.time}-${idx}`} className="log-item">
-                        <span className="log-time">{log.time}</span>
-                        <span className="log-text">{log.text}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              <div className="feedback-actions" />
             </div>
+          </div>
 
             {showRightPanel && (
               <div className="panel">
@@ -960,18 +931,6 @@ function App() {
                     )}
                   </tbody>
                 </table>
-
-                <div className="panel-header" style={{ marginTop: 16 }}>
-                  라이브 코칭 로그
-                </div>
-                <div className="log-list">
-                  {filteredCoachingLog.map((log, idx) => (
-                    <div key={`${log.time}-${idx}-side`} className="log-item">
-                      <span className="log-time">{log.time}</span>
-                      <span className="log-text">{log.text}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>
