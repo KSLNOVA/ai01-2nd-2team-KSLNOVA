@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Realtime Squat Coach Web</title>
+
+  <script type="module">
+    import {
+      PoseLandmarker,
+      FilesetResolver,
+      DrawingUtils
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+    let video, canvas, ctx;
+    let poseLandmarker;
+    let drawingUtils;
+    let frameIndex = 1;
+
+    // 최신 분석 데이터 저장용
+    let latestAngles = null;
+
+    // LLM 피드백
+    let lastFeedback = "";
+
+    async function initCamera() {
+      video = document.getElementById("video");
+      canvas = document.getElementById("canvas");
+      ctx = canvas.getContext("2d");
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 }
+      });
+
+      video.srcObject = stream;
+      await video.play();
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    // 각도 계산
+    function calculateAngle(a, b, c) {
+      const AB = [a.x - b.x, a.y - b.y];
+      const CB = [c.x - b.x, c.y - b.y];
+      const dot = AB[0] * CB[0] + AB[1] * CB[1];
+      const magnitude = Math.hypot(...AB) * Math.hypot(...CB);
+      return Math.acos(dot / magnitude) * (180 / Math.PI);
+    }
+
+    async function initPose() {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+      );
+
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+        },
+        runningMode: "VIDEO",
+        numPoses: 1
+      });
+
+      drawingUtils = new DrawingUtils(ctx);
+    }
+
+    // 서버로 LLM 요청 보내기
+    async function requestLLMFeedback(angles) {
+      try {
+        const res = await fetch("http://localhost:8000/feedback", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(angles)
+        });
+
+        const data = await res.json();
+        return data.feedback;
+      } catch (err) {
+        console.error("LLM 호출 오류", err);
+        return null;
+      }
+    }
+
+    // -------------------------------------
+    // 1) 실시간 영상 분석 루프 (LLM 없음)
+    // -------------------------------------
+    async function predict() {
+      if (!poseLandmarker) return;
+
+      const results = poseLandmarker.detectForVideo(video, frameIndex++);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      if (results.landmarks && results.landmarks[0]) {
+        const lm = results.landmarks[0];
+
+        drawingUtils.drawLandmarks(lm);
+        drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS);
+
+        const leftShoulder = lm[11];
+        const rightShoulder = lm[12];
+        const leftHip = lm[23];
+        const rightHip = lm[24];
+        const leftKnee = lm[25];
+        const rightKnee = lm[26];
+        const leftAnkle = lm[27];
+        const rightAnkle = lm[28];
+
+        const left_knee_angle = calculateAngle(leftHip, leftKnee, leftAnkle);
+        const right_knee_angle = calculateAngle(rightHip, rightKnee, rightAnkle);
+        const left_torso_angle = calculateAngle(leftShoulder, leftHip, leftKnee);
+        const right_torso_angle = calculateAngle(rightShoulder, rightHip, rightKnee);
+
+        document.getElementById("leftAngle").innerText = left_knee_angle.toFixed(1);
+        document.getElementById("rightAngle").innerText = right_knee_angle.toFixed(1);
+        document.getElementById("torsoAngle").innerText =
+          ((left_torso_angle + right_torso_angle) / 2).toFixed(1);
+
+        // ★ LLM 호출용 데이터 저장만 한다 (호출 X)
+        latestAngles = {
+          left_knee: left_knee_angle,
+          right_knee: right_knee_angle,
+          left_torso: left_torso_angle,
+          right_torso: right_torso_angle
+        };
+      }
+
+      requestAnimationFrame(predict);
+    }
+
+    // ---------------------------------------
+    // 2) LLM 호출 전용 타이머 (5초 간격)
+    // ---------------------------------------
+      setInterval(async () => {
+        if (!latestAngles) return;
+
+        const feedback = await requestLLMFeedback(latestAngles);
+        if (!feedback) return;
+
+        // 중복 피드백 방지
+        if (feedback !== lastFeedback) {
+          lastFeedback = feedback;
+          document.getElementById("feedbackText").innerText = feedback;
+
+          // 🔥 정상 자세라면 TTS 말하지 않음
+          const normalized = feedback.replace(/\s/g, '');
+
+          const normalPatterns = [
+            "정상자세입니다.",
+            "자세좋습니다.",
+            "좋아요.",
+            "좋습니다.",
+            "문제없습니다."
+           ];
+           const isNormal = normalPatterns.some(p => normalized.includes(p));
+
+           if (!isNormal) {
+             // 문제 있을 때만 TTS 실행
+             const utter = new SpeechSynthesisUtterance(feedback);
+             utter.lang = "ko-KR";
+             speechSynthesis.speak(utter);
+          }
+        }
+      }, 2500);
+
+    async function start() {
+      await initCamera();
+      await initPose();
+      predict();
+    }
+
+    window.onload = start;
+  </script>
+
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    #canvas { border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+
+  <h2>🏋️ 실시간 LLM 스쿼트 코치</h2>
+
+  <video id="video" playsinline style="display:none;"></video>
+  <canvas id="canvas"></canvas>
+
+  <h3>📊 실시간 측정</h3>
+  <p>왼쪽 무릎 각도: <span id="leftAngle">0</span>°</p>
+  <p>오른쪽 무릎 각도: <span id="rightAngle">0</span>°</p>
+  <p>상체 기울기 평균: <span id="torsoAngle">0</span>°</p>
+
+  <h3>🗣 실시간 코칭</h3>
+  <p id="feedbackText">-</p>
+
+</body>
+</html>
