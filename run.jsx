@@ -60,13 +60,11 @@ function App() {
   const [cameraError, setCameraError] = useState('');
   const [sessionState] = useState('대기 중');
   const [coachingLog, setCoachingLog] = useState([]);
-  const [voices, setVoices] = useState([]);
-  const [voiceId, setVoiceId] = useState('');
-  const [voiceLabel, setVoiceLabel] = useState('');
   const [processedFrame, setProcessedFrame] = useState('');
   const [wsStatus, setWsStatus] = useState('connecting');
   const [sessionStart, setSessionStart] = useState(null);
   const [sessionDuration, setSessionDuration] = useState(0);
+  const [ttsHistory, setTtsHistory] = useState([]);
 
   const videoRef = useRef(null);
   const synthRef = useRef(null);
@@ -82,21 +80,6 @@ function App() {
   const focusLine = (EXERCISE_FOCUS[exercise] || []).join(' · ') || '폼 안정성 유지';
   const historyForExercise = history.filter((item) => item.exercise === exercise);
   const displayHistory = historyForExercise.length ? historyForExercise : history;
-  const statusChips = [
-    { label: '웹캠', value: cameraReady ? 'ON' : '대기', tone: cameraReady ? 'ok' : 'warn' },
-    { label: 'LLM', value: OPENAI_API_KEY ? '준비' : '키 필요', tone: OPENAI_API_KEY ? 'ok' : 'warn' },
-    { label: 'YouTube', value: youtubeReady ? '추천' : '기본', tone: youtubeReady ? 'ok' : 'warn' },
-    {
-      label: 'TTS',
-      value: !ttsSupported ? '미지원' : ttsEnabled ? 'ON' : 'OFF',
-      tone: !ttsSupported ? 'danger' : ttsEnabled ? 'ok' : 'warn',
-    },
-    {
-      label: '실시간',
-      value: wsStatus === 'connected' ? 'WS 연결' : wsStatus === 'connecting' ? '연결 중' : '오프라인',
-      tone: wsStatus === 'connected' ? 'ok' : 'warn',
-    },
-  ];
   const sessionMeta = isRecording
     ? `${repCount} Reps · ${Math.max(sessionDuration, 1)}초`
     : '시작 버튼을 누르세요';
@@ -375,7 +358,6 @@ function App() {
 
     const assignVoice = () => {
       const list = synthRef.current && synthRef.current.getVoices ? synthRef.current.getVoices() : [];
-      setVoices(list);
       const pick =
         list.find((v) => v.lang && v.lang.indexOf('ko') === 0 && /male|man|남성|boy/i.test(v.name || '')) ||
         list.find((v) => v.lang && v.lang.indexOf('ko') === 0 && /Wavenet|Standard/i.test(v.name || '')) ||
@@ -383,8 +365,6 @@ function App() {
         list[0];
       if (pick) {
         voiceRef.current = pick;
-        setVoiceId(pick.name || pick.voiceURI || '');
-        setVoiceLabel(pick.name || '남성 코치');
       }
     };
 
@@ -418,6 +398,7 @@ function App() {
     u.pitch = 0.95;
     synthRef.current.speak(u);
     lastSpokenRef.current = say;
+    setTtsHistory((prev) => [{ time: timeLabel(), text: say }, ...prev].slice(0, 6));
   };
 
   useEffect(() => {
@@ -426,15 +407,6 @@ function App() {
     if (lastSpokenRef.current === feedback.trim()) return;
     speakFeedback(feedback);
   }, [feedback, ttsEnabled]);
-
-  const handleVoiceChange = (id) => {
-    setVoiceId(id);
-    const pick = voices.find((v) => (v.name || v.voiceURI) === id);
-    if (pick) {
-      voiceRef.current = pick;
-      setVoiceLabel(pick.name || '코치 음성');
-    }
-  };
 
   const normalizeEmbedUrl = (val) => {
     const raw = (val || '').trim();
@@ -627,14 +599,6 @@ function App() {
               <span className="hero-exercise">{exercise}</span>
             </div>
             <div className="hero-focus">{focusLine}</div>
-            <div className="status-strip">
-              {statusChips.map((chip) => (
-                <div key={chip.label} className={`status-pill tone-${chip.tone}`}>
-                  <span className="status-label">{chip.label}</span>
-                  <span className="status-value">{chip.value}</span>
-                </div>
-              ))}
-            </div>
           </div>
           <div className="hero-stats">
             <div className="stat-card">
@@ -852,20 +816,6 @@ function App() {
                       >
                         다시 듣기
                       </button>
-                      {voices.length ? (
-                        <select
-                          value={voiceId}
-                          onChange={(e) => handleVoiceChange(e.target.value)}
-                          className="voice-select"
-                        >
-                          {voices.map((v) => (
-                            <option key={v.name || v.voiceURI} value={v.name || v.voiceURI}>
-                              {v.name || v.voiceURI}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                      {voiceLabel ? <span className="voice-label">{voiceLabel}</span> : null}
                     </>
                   )}
                 </div>
@@ -873,16 +823,26 @@ function App() {
               <textarea value={feedback} readOnly rows={3} className="feedback-box" />
               <div className="feedback-actions">
                 <div className="tag-row">
-                  <span className="tag">포커스</span>
-                  <span className="tag-value">{focusLine}</span>
-                  <span className="tag tag-soft">세션</span>
-                  <span className="tag-value">{isRecording ? `${sessionDuration}초 진행 중` : '준비 완료'}</span>
+                  <span className="tag">최근 TTS 코칭</span>
+                  <span className="tag-value">{ttsHistory.length ? `${ttsHistory.length}개 기록` : '아직 없음'}</span>
+                </div>
+                <div className="tts-history">
+                  {ttsHistory.length === 0 ? (
+                    <div className="placeholder">TTS가 재생되면 여기에서 최근 코칭 문구를 확인할 수 있어요.</div>
+                  ) : (
+                    ttsHistory.map((item, idx) => (
+                      <div key={`${item.time}-${idx}`} className="tts-history-item">
+                        <span className="tts-history-time">{item.time}</span>
+                        <span className="tts-history-text">{item.text}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
               <div className="log-list">
                 {coachingLog.slice(0, 4).length === 0 ? (
                   <div className="placeholder">운동을 시작하면 코칭 로그가 여기에 표시됩니다.</div>
-                  ) : (
+                ) : (
                     coachingLog.slice(0, 4).map((log, idx) => (
                       <div key={`${log.time}-${idx}`} className="log-item">
                         <span className="log-time">{log.time}</span>

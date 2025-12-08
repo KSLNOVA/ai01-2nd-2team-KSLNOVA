@@ -92,50 +92,6 @@
   margin-bottom: 8px;
 }
 
-.status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 12px;
-}
-
-.status-label {
-  color: #cbd5e1;
-  letter-spacing: 0.04em;
-  font-weight: 700;
-}
-
-.status-value {
-  color: #e2e8f0;
-  font-weight: 700;
-}
-
-.tone-ok {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: rgba(16, 185, 129, 0.5);
-}
-
-.tone-warn {
-  background: rgba(251, 191, 36, 0.2);
-  border-color: rgba(251, 191, 36, 0.45);
-}
-
-.tone-danger {
-  background: rgba(248, 113, 113, 0.2);
-  border-color: rgba(248, 113, 113, 0.5);
-}
-
 .hero-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -570,24 +526,6 @@
   font-weight: 700;
 }
 
-.voice-select {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e2e8f0;
-  border-radius: 10px;
-  padding: 6px 8px;
-  font-size: 12px;
-  min-width: 140px;
-}
-
-.voice-label {
-  color: #cbd5e1;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  margin-left: 4px;
-}
-
 .feedback-box {
   width: 100%;
   padding: 10px;
@@ -603,11 +541,9 @@
 
 .feedback-actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 8px;
-  flex-wrap: wrap;
 }
 
 .tag-row {
@@ -633,6 +569,34 @@
 .tag-value {
   color: #cbd5e1;
   font-size: 13px;
+}
+
+.tts-history {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tts-history-item {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tts-history-time {
+  font-size: 12px;
+  color: #a5b4fc;
+}
+
+.tts-history-text {
+  font-size: 13px;
+  color: #e5e7eb;
 }
 
 .log-list {
