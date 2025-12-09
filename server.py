@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import mediapipe as mp
 from collections import deque
-import torch
-import openai
+from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import threading
@@ -19,7 +18,7 @@ from datetime import datetime
 # 1. 설정 및 초기화
 # ---------------------------------------------------------
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
@@ -63,8 +62,6 @@ def calculate_angle(a, b, c):
 class SquatAnalyzer:
     def __init__(self):
         self.reset_session()
-        self.last_llm_time = 0
-        self.llm_cooldown = 2.5  # seconds
 
     def reset_session(self):
         self.is_recording = False
@@ -166,7 +163,7 @@ class SquatAnalyzer:
                 - 문제가 있으면 한국어 10자 내외, 한 문장만.
                 - 불필요한 설명 금지.
                 """
-                response = openai.chat.completions.create(
+                response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "system", "content": "헬스 트레이너"}, {"role": "user", "content": prompt}]
                 )
@@ -231,7 +228,7 @@ class SquatAnalyzer:
         results = pose.process(image_rgb)
         
         instant_feedback = ""
-        coach_feedback = getattr(self, 'coach_feedback', "") 
+        coach_feedback = getattr(self, 'coach_feedback', "")
         
         if results.pose_landmarks:
             lm = results.pose_landmarks.landmark
@@ -256,66 +253,46 @@ class SquatAnalyzer:
             current_ex = getattr(self, 'current_exercise', '스쿼트')
 
             if current_ex == '스쿼트':
-                # 기존 스쿼트 로직
-                angle_r_knee = calculate_angle(r_hip, r_knee, r_ankle)
-                angle_l_knee = calculate_angle(l_hip, l_knee, l_ankle)
-                avg_knee_ang = (angle_l_knee + angle_r_knee) / 2
-                
-                warnings = self.detect_realtime_errors(angle_l_knee, angle_r_knee, l_hip, r_hip, l_knee, r_knee, l_shoulder, r_shoulder)
-                if warnings: instant_feedback = warnings[0]
-
-                if avg_knee_ang < 90:
-                    self.is_squat_down = True
-                    if not hasattr(self, 'min_knee_angle'): self.min_knee_angle = 180
-                    self.min_knee_angle = min(self.min_knee_angle, avg_knee_ang)
-                elif avg_knee_ang > 160 and self.is_squat_down:
-                    if hasattr(self, 'min_knee_angle') and self.min_knee_angle > 100:
-                        self.current_rep_errors.append("얕은 스쿼트")
-                        instant_feedback = "더 깊게 앉으세요!"
-                    self.rep_count += 1
-                    self.is_squat_down = False
-                    self.min_knee_angle = 180
-                    self.analyze_rep_completion(None)
-                # 각도 기반 LLM 피드백 (쿨다운 적용)
-                if self.is_recording:
-                    self.maybe_llm_feedback({
-                        "left_torso": left_torso_angle,
-                        "right_torso": right_torso_angle,
-                        "left_knee": left_knee_angle,
-                        "right_knee": right_knee_angle,
-                    })
-
+                # fdb 스타일: 각도 기반 LLM 피드백만 사용 (기존 실시간/rep 로직 제거)
+                self.maybe_llm_feedback({
+                    "left_torso": left_torso_angle,
+                    "right_torso": right_torso_angle,
+                    "left_knee": left_knee_angle,
+                    "right_knee": right_knee_angle,
+                })
             elif current_ex == '플랭크':
-                # 플랭크 로직 (버티기 운동이라 Rep 카운트 대신 시간이나 유지 상태 체크가 적절하나, 여기선 에러 감지만)
-                # 플랭크는 Rep이 없으므로, 일정 시간마다 또는 에러 발생 시 피드백
-                warnings = self.detect_plank_errors(l_shoulder, r_shoulder, l_elbow, r_elbow, l_hip, r_hip, l_ankle, r_ankle, l_ear, r_ear)
-                if warnings:
-                    instant_feedback = warnings[0]
-                    # 플랭크는 지속적인 피드백이 중요하므로 에러가 지속되면 기록
-                    # (너무 자주 쌓이지 않게 조절 필요하지만 일단 단순화)
-                    if len(self.current_rep_errors) > 10: # 에러가 좀 쌓이면
-                         self.analyze_rep_completion(None) # 코칭 트리거
+                # 플랭크도 동일하게 각도 기반 LLM 피드백만 사용
+                self.maybe_llm_feedback({
+                    "left_torso": left_torso_angle,
+                    "right_torso": right_torso_angle,
+                    "left_knee": left_knee_angle,
+                    "right_knee": right_knee_angle,
+                })
 
             mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+        # 화면에는 최신 코치 피드백만 전달 (기존 경고/rep 피드백 제거)
+        instant_feedback = getattr(self, 'coach_feedback', "")
+        coach_feedback = instant_feedback
 
         return image, instant_feedback, coach_feedback, self.rep_count
 
     def maybe_llm_feedback(self, angles: dict):
-        """fdb_server 스타일 각도 기반 LLM 호출 (쿨다운 적용)"""
-        if not openai.api_key:
+        """fdb_server 스타일 각도 기반 LLM 호출 (쿨다운 없이 즉시)"""
+        if not client.api_key:
             return
-        now = time.time()
-        if now - self.last_llm_time < self.llm_cooldown:
-            return
-        self.last_llm_time = now
 
         def run_llm():
             prompt = f"""
             당신은 스쿼트 자세 전문가입니다.
-            다음 관절 각도 데이터를 보고 문제 여부를 판단하고 피드백 해주세요.
-            규칙:
-            - 자세가 정상이면 반드시 "정상 자세입니다." 한 문장만 말하기.
-            - 문제가 있으면 한국어 10자 내외, 직관적 한 문장만.
+            다음의 관절 각도 데이터를 보고 문제 여부를 판단하고 피드백 해주세요.
+            
+            규칙: 
+            - 네가 판단했을 때 자세가 **정상**이면 반드시 다음처럼 짧게 말해라: "정상 자세입니다."
+            - 자세가 **문제가 있으면** 그에 맞는 피드백하세요, **한국어로 매우 짧고(10자 내외), 직관적인 피드백을 하세요.**
+
+            출력 규칙:
+            - 한 문장만 출력.
             - 불필요한 설명 금지.
 
             왼쪽 상체 각도: {angles.get('left_torso', 0):.1f}
@@ -324,7 +301,7 @@ class SquatAnalyzer:
             오른쪽 무릎 각도: {angles.get('right_knee', 0):.1f}
             """
             try:
-                res = openai.chat.completions.create(
+                res = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "너는 스쿼트 자세 전문가야, 내 자세 중 잘못된 부분을 지적해줘"},
@@ -350,7 +327,7 @@ class SquatAnalyzer:
         전체적인 피드백과 개선점을 요약해서 한국어로 리포트를 작성해주세요.
         """
         try:
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": "전문 트레이너"}, {"role": "user", "content": prompt}]
             )

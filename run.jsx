@@ -20,14 +20,20 @@ const OPENAI_API_KEY =
   fallbackEnv?.REACT_APP_OPENAI_API_KEY ||
   '';
 
-const EXERCISES = ['플랭크', '스쿼트'];
+const EXERCISES = ['스쿼트', '플랭크'];
 const EXERCISE_FOCUS = {
-  플랭크: ['코어 안정성', '어깨-골반 정렬'],
   스쿼트: ['무릎 트래킹', '엉덩이 힌지'],
+  플랭크: ['코어 안정성', '어깨-골반 정렬'],
 };
 
-const FALLBACK_YT = 'https://www.youtube.com/embed/bm5Zbmr34yw';
-const FALLBACK_YT_ALT = 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw';
+const FALLBACK_YT = {
+  스쿼트: 'https://youtu.be/urOSaROmTIk?si=x87iEYY9ydYj76RU',
+  플랭크: 'https://www.youtube.com/embed/bm5Zbmr34yw',
+};
+const FALLBACK_YT_ALT = {
+  스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
+  플랭크: 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw',
+};
 const YT_QUERY_MAP = {
   플랭크: '플랭크 운동 자세',
   스쿼트: '스쿼트 운동 자세',
@@ -52,7 +58,7 @@ const timeLabel = () =>
   new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
 
 function App() {
-  const [exercise, setExercise] = useState('플랭크');
+  const [exercise, setExercise] = useState('스쿼트');
   const [youtubeUrl, setYoutubeUrl] = useState(FALLBACK_YT);
   const [history, setHistory] = useState(DEFAULT_HISTORY);
   const [feedback, setFeedback] = useState('웹캠을 켜면 자세 피드백이 여기에 표시됩니다.');
@@ -84,7 +90,7 @@ function App() {
   const lastSpokenRef = useRef('');
   const ttsEnabledRef = useRef(false);
   const processedFrameRef = useRef('');
-  const exerciseRef = useRef('플랭크');
+  const exerciseRef = useRef('스쿼트');
   const repRef = useRef(0);
   const durationRef = useRef(0);
   const lastFrameTsRef = useRef(0);
