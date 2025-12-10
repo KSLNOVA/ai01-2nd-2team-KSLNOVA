@@ -75,7 +75,7 @@ class VLMFeedbackSquat:
     """
 
     def __init__(self):
-        self.last_feedback = "웹캠을 켜면 스쿼트 최저점에서 피드백을 제공합니다."
+        self.last_feedback = "웹캠을 켜면 스쿼트 자세 피드백을 제공합니다."
         self.rep_count = 0
         self.is_down = False
         self.min_knee_angle = 180

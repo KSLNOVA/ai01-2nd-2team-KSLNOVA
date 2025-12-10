@@ -27,8 +27,8 @@ const EXERCISE_FOCUS = {
 };
 
 const FALLBACK_YT = {
-  스쿼트: 'https://youtu.be/urOSaROmTIk?si=x87iEYY9ydYj76RU',
-  플랭크: 'https://www.youtube.com/embed/bm5Zbmr34yw',
+  스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
+  플랭크: 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw',
 };
 const FALLBACK_YT_ALT = {
   스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
@@ -57,7 +57,7 @@ const timeLabel = () =>
 
 function App() {
   const [exercise, setExercise] = useState('스쿼트');
-  const [youtubeUrl, setYoutubeUrl] = useState(FALLBACK_YT);
+  const [youtubeUrl, setYoutubeUrl] = useState(FALLBACK_YT['스쿼트']);
   const [history, setHistory] = useState(DEFAULT_HISTORY);
   const [feedback, setFeedback] = useState('웹캠을 켜면 자세 피드백이 여기에 표시됩니다.');
   const [chatMessages, setChatMessages] = useState([]);
@@ -334,7 +334,8 @@ function App() {
 
     async function fetchYoutube() {
       // 기본 영상 먼저 깔아두기 (API 실패 시 바로 표시)
-      setYoutubeUrl(videoErrorRef.current > 0 ? FALLBACK_YT_ALT : FALLBACK_YT);
+      const fb = videoErrorRef.current > 0 ? FALLBACK_YT_ALT[exercise] : FALLBACK_YT[exercise];
+      setYoutubeUrl(fb);
       if (videoPinned) {
         setYoutubeError('수동으로 고정된 영상입니다. 기본 추천을 보려면 해제하세요.');
         return;
@@ -342,12 +343,12 @@ function App() {
       setYoutubeError('');
 
       if (!YOUTUBE_API_KEY) {
-        setYoutubeUrl(FALLBACK_YT);
+        setYoutubeUrl(FALLBACK_YT[exercise]);
         setYoutubeError('.env에 YOUTUBE_API_KEY가 없어 기본 영상을 사용합니다.');
         return;
       }
       if (youtubeBlockedRef.current) {
-        setYoutubeUrl(FALLBACK_YT);
+        setYoutubeUrl(FALLBACK_YT[exercise]);
         setYoutubeError('YouTube API가 차단되어 기본 영상을 사용합니다. 링크/ID를 직접 입력해 주세요.');
         return;
       }
@@ -368,13 +369,13 @@ function App() {
         const data = await resp.json();
         const items = data && data.items ? data.items : [];
         if (!items.length) {
-          setYoutubeUrl(FALLBACK_YT);
+          setYoutubeUrl(FALLBACK_YT[exercise]);
           setYoutubeError('검색 결과가 없어 기본 영상을 사용합니다.');
           return;
         }
         const videoId = items[0] && items[0].id && items[0].id.videoId;
         if (!videoId) {
-          setYoutubeUrl(FALLBACK_YT);
+          setYoutubeUrl(FALLBACK_YT[exercise]);
           setYoutubeError('videoId가 없어 기본 영상을 사용합니다.');
           return;
         }
@@ -382,7 +383,7 @@ function App() {
       } catch (err) {
         console.error('YouTube API error:', err);
         youtubeBlockedRef.current = true;
-        setYoutubeUrl(FALLBACK_YT);
+        setYoutubeUrl(FALLBACK_YT[exercise]);
         setYoutubeError('YouTube API 호출이 차단되었습니다. 링크/ID를 직접 입력해 주세요.');
       }
     }
@@ -487,13 +488,20 @@ function App() {
 
   const normalizeEmbedUrl = (val) => {
     const raw = (val || '').trim();
-    if (!raw) return '';
+    if (!raw) return null;
+
+    // watch?v=ID 또는 youtu.be/ID → ID 추출
+    const watchMatch = raw.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    const shortMatch = raw.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
     const idMatch = raw.match(/([A-Za-z0-9_-]{11})/);
-    if (idMatch) {
-      return `https://www.youtube.com/embed/${idMatch[1]}`;
-    }
-    if (raw.startsWith('http')) return raw;
-    return `https://www.youtube.com/embed/${raw}`;
+    const vid = (watchMatch && watchMatch[1]) || (shortMatch && shortMatch[1]) || (idMatch && idMatch[1]);
+    if (vid) return `https://www.youtube-nocookie.com/embed/${vid}`;
+
+    // http(s)지만 ID가 안 보이면 그대로 (외부 링크 포함)
+    if (/^https?:\/\//i.test(raw)) return raw;
+
+    // 그 외는 유효하지 않은 입력으로 간주
+    return null;
   };
 
   const searchAndSetVideo = async (q) => {
@@ -530,7 +538,7 @@ function App() {
     } catch (err) {
       console.error('YouTube search error:', err);
       youtubeBlockedRef.current = true;
-      setYoutubeUrl(FALLBACK_YT);
+      setYoutubeUrl(FALLBACK_YT[exercise]);
       setYoutubeError('YouTube API 호출이 차단되었습니다. 영상 ID/링크를 직접 입력하세요.');
     }
   };
@@ -547,6 +555,10 @@ function App() {
       return;
     }
     const url = normalizeEmbedUrl(raw);
+    if (!url) {
+      setYoutubeError('영상 ID/링크를 확인해 주세요.');
+      return;
+    }
     setYoutubeUrl(url);
     setVideoPinned(true);
     setYoutubeError('');
@@ -557,7 +569,7 @@ function App() {
     setVideoPinned(false);
     setYoutubeError('');
     setVideoInput('');
-    setYoutubeUrl(FALLBACK_YT);
+      setYoutubeUrl(FALLBACK_YT[exercise]);
   };
 
   const handleVideoRequest = async (raw) => {
@@ -569,6 +581,10 @@ function App() {
       const target = direct[1].trim();
       if (!target) return false;
       const url = normalizeEmbedUrl(target);
+      if (!url) {
+        setYoutubeError('영상 ID/링크를 확인해 주세요.');
+        return false;
+      }
       setYoutubeUrl(url);
       setVideoPinned(true);
       setYoutubeError('');
@@ -666,7 +682,7 @@ function App() {
   const handleVideoError = () => {
     videoErrorRef.current += 1;
     setVideoPinned(false);
-    const next = videoErrorRef.current > 1 ? FALLBACK_YT_ALT : FALLBACK_YT;
+    const next = videoErrorRef.current > 1 ? FALLBACK_YT_ALT[exercise] : FALLBACK_YT[exercise];
     setYoutubeUrl(next);
     setYoutubeError('영상 재생에 실패해 기본 영상으로 전환했습니다. 필요하면 다른 영상 ID/링크를 입력하세요.');
   };
@@ -959,5 +975,3 @@ function App() {
     </div>
   );
 }
-
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
