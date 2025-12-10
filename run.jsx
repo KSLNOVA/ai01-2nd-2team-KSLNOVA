@@ -252,7 +252,12 @@ function App() {
 
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        // 좌우 반전 없이 실제 방향으로 캡처하기 위해 캔버스에 뒤집어서 그린다
+        ctx.save();
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
 
         if (canvas.width && canvas.height) {
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
