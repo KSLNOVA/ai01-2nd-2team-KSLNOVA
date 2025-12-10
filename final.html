@@ -123,7 +123,7 @@
                 const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
                 const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
                 const angle = calcAngle(hip, knee, ankle);
-                document.getElementById("angle").innerText = angle.toFixed(1) + "°";
+
                 // 사이클
                 if (cycleState === "STANDING" && angle < STANDING_TH - 10) { cycleState = "SQUATTING"; minKneeAngle = angle; document.getElementById("status").innerText = "⬇️ 하강"; }
                 else if (cycleState === "SQUATTING") {
@@ -552,10 +552,7 @@
                             <div class="stat-value" id="repCount">0</div>
                             <div class="stat-label">횟수</div>
                         </div>
-                        <div class="stat">
-                            <div class="stat-value" id="angle">-</div>
-                            <div class="stat-label">무릎각도</div>
-                        </div>
+
                     </div>
                 </div>
                 <div class="controls">
