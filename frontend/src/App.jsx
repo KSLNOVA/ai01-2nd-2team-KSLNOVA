@@ -49,8 +49,6 @@ const WS_URL =
       : 'ws://localhost:8000/ws/feedback';
 
 const DEFAULT_HISTORY = [
-  { date: '2025-12-04', exercise: '플랭크', set: '3세트', summary: '허리 각도 안정적' },
-  { date: '2025-12-03', exercise: '플랭크', set: '2세트', summary: '어깨 살짝 내려주기' },
   { date: '2025-12-02', exercise: '스쿼트', set: '4세트', summary: '무릎 안쪽 모임 주의' },
 ];
 
