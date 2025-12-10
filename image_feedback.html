@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>🏋️ 스쿼트 이미지 분석 AI 코치</title>
+
+    <script type="module">
+        import {
+            PoseLandmarker,
+            FilesetResolver,
+            DrawingUtils
+        } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        let video, canvas, ctx;
+        let poseLandmarker;
+        let drawingUtils;
+        let frameIndex = 1;
+
+        // 스무딩
+        const SMOOTHING_FACTOR = 0.7;
+        let smoothedLandmarks = null;
+
+        function smoothLandmarks(currentLandmarks) {
+            if (!smoothedLandmarks) {
+                smoothedLandmarks = currentLandmarks.map(lm => ({ ...lm }));
+                return smoothedLandmarks;
+            }
+            for (let i = 0; i < currentLandmarks.length; i++) {
+                smoothedLandmarks[i].x = smoothedLandmarks[i].x * (1 - SMOOTHING_FACTOR) + currentLandmarks[i].x * SMOOTHING_FACTOR;
+                smoothedLandmarks[i].y = smoothedLandmarks[i].y * (1 - SMOOTHING_FACTOR) + currentLandmarks[i].y * SMOOTHING_FACTOR;
+                smoothedLandmarks[i].z = smoothedLandmarks[i].z * (1 - SMOOTHING_FACTOR) + currentLandmarks[i].z * SMOOTHING_FACTOR;
+            }
+            return smoothedLandmarks;
+        }
+
+        // 스쿼트 사이클 감지
+        const STANDING_THRESHOLD = 160;
+        const SQUAT_THRESHOLD = 110;
+        const VISIBILITY_THRESHOLD = 0.7;
+
+        let cycleState = "STANDING";
+        let repCount = 0;
+        let minKneeAngle = 180;  // 사이클 중 최소 무릎 각도
+        let capturedImage = null;  // 최하단 캡처 이미지
+        let isProcessingFeedback = false;
+        let isFullBodyVisible = false;
+
+        // 전신 가시성 체크
+        function checkFullBodyVisibility(landmarks) {
+            const lowerBodyPoints = [23, 24, 25, 26, 27, 28];
+            for (const idx of lowerBodyPoints) {
+                const lm = landmarks[idx];
+                if (!lm) return false;
+                if (lm.y > 1.0 || lm.y < 0) return false;
+                if (lm.visibility !== undefined && lm.visibility < VISIBILITY_THRESHOLD) return false;
+            }
+            return true;
+        }
+
+        async function initCamera() {
+            video = document.getElementById("video");
+            canvas = document.getElementById("canvas");
+            ctx = canvas.getContext("2d");
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 }
+            });
+
+            video.srcObject = stream;
+            await video.play();
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+
+        function calculateAngle(a, b, c) {
+            const AB = [a.x - b.x, a.y - b.y];
+            const CB = [c.x - b.x, c.y - b.y];
+            const dot = AB[0] * CB[0] + AB[1] * CB[1];
+            const magnitude = Math.hypot(...AB) * Math.hypot(...CB);
+            if (magnitude === 0) return 180;
+            return Math.acos(Math.max(-1, Math.min(1, dot / magnitude))) * (180 / Math.PI);
+        }
+
+        async function initPose() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+            );
+
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath:
+                        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+                },
+                runningMode: "VIDEO",
+                numPoses: 1
+            });
+
+            drawingUtils = new DrawingUtils(ctx);
+        }
+
+        // 현재 캔버스를 이미지로 캡처
+        function captureCanvas() {
+            return canvas.toDataURL("image/jpeg", 0.8);
+        }
+
+        // 서버로 이미지 전송
+        async function sendImageForAnalysis(imageData, count) {
+            try {
+                const res = await fetch("http://localhost:8002/analyze-image", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        image: imageData,
+                        rep_count: count
+                    })
+                });
+
+                const data = await res.json();
+                return data.feedback;
+            } catch (err) {
+                console.error("서버 호출 오류", err);
+                return null;
+            }
+        }
+
+        function speak(text) {
+            speechSynthesis.cancel();
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.lang = "ko-KR";
+            utter.rate = 1.1;
+            speechSynthesis.speak(utter);
+        }
+
+        async function onCycleComplete() {
+            if (isProcessingFeedback || !capturedImage) return;
+
+            isProcessingFeedback = true;
+            repCount++;
+
+            document.getElementById("repCount").innerText = repCount;
+            document.getElementById("cycleStatus").innerText = "📸 이미지 분석 중...";
+
+            // 캡처된 이미지를 썸네일로 표시
+            document.getElementById("capturedImg").src = capturedImage;
+            document.getElementById("capturedImg").style.display = "block";
+
+            // 서버로 이미지 전송
+            const feedback = await sendImageForAnalysis(capturedImage, repCount);
+
+            if (feedback) {
+                document.getElementById("feedbackText").innerText = feedback;
+                document.getElementById("cycleStatus").innerText = "✅ " + repCount + "회 완료!";
+                speak(feedback);
+            } else {
+                document.getElementById("cycleStatus").innerText = "⚠️ 분석 오류";
+            }
+
+            // 초기화
+            capturedImage = null;
+            minKneeAngle = 180;
+            isProcessingFeedback = false;
+        }
+
+        async function predict() {
+            if (!poseLandmarker) {
+                requestAnimationFrame(predict);
+                return;
+            }
+
+            const results = poseLandmarker.detectForVideo(video, frameIndex++);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            if (results.landmarks && results.landmarks[0]) {
+                const rawLm = results.landmarks[0];
+                isFullBodyVisible = checkFullBodyVisibility(rawLm);
+                const lm = smoothLandmarks(rawLm);
+
+                // 스켈레톤 그리기 (스쿼트 관련만)
+                const squatIdx = [11, 12, 23, 24, 25, 26, 27, 28];
+                const visibleLm = squatIdx.filter(i => lm[i].y >= 0 && lm[i].y <= 1).map(i => lm[i]);
+                drawingUtils.drawLandmarks(visibleLm, { radius: 6, color: "#00ff88" });
+
+                const connections = [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28]];
+                ctx.strokeStyle = "#00d4ff";
+                ctx.lineWidth = 3;
+                for (const [a, b] of connections) {
+                    if (lm[a].y >= 0 && lm[a].y <= 1 && lm[b].y >= 0 && lm[b].y <= 1) {
+                        ctx.beginPath();
+                        ctx.moveTo(lm[a].x * canvas.width, lm[a].y * canvas.height);
+                        ctx.lineTo(lm[b].x * canvas.width, lm[b].y * canvas.height);
+                        ctx.stroke();
+                    }
+                }
+
+                // 각도 계산
+                const hip = lm[23].z < lm[24].z ? lm[23] : lm[24];
+                const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
+                const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
+                const knee_angle = calculateAngle(hip, knee, ankle);
+
+                document.getElementById("kneeAngle").innerText = knee_angle.toFixed(1);
+
+                // 상태 표시
+                let stateEmoji = "🧍";
+                if (cycleState === "SQUATTING") stateEmoji = "⬇️";
+                else if (cycleState === "RISING") stateEmoji = "⬆️";
+                document.getElementById("poseState").innerText = stateEmoji;
+
+                // 전신이 보이지 않으면 경고
+                if (!isFullBodyVisible) {
+                    document.getElementById("cycleStatus").innerText = "⚠️ 전신이 보이도록 위치해주세요";
+                    requestAnimationFrame(predict);
+                    return;
+                }
+
+                // 사이클 감지
+                if (cycleState === "STANDING") {
+                    if (knee_angle < STANDING_THRESHOLD - 10) {
+                        cycleState = "SQUATTING";
+                        minKneeAngle = knee_angle;
+                        document.getElementById("cycleStatus").innerText = "⬇️ 하강 중...";
+                    }
+                }
+                else if (cycleState === "SQUATTING") {
+                    // 최소 각도 업데이트 및 이미지 캡처
+                    if (knee_angle < minKneeAngle) {
+                        minKneeAngle = knee_angle;
+                        // 최하단일 때 이미지 캡처!
+                        if (knee_angle < SQUAT_THRESHOLD) {
+                            capturedImage = captureCanvas();
+                            document.getElementById("cycleStatus").innerText = "📸 최하단 캡처!";
+                        }
+                    }
+
+                    // 상승 시작
+                    if (knee_angle > minKneeAngle + 20 && minKneeAngle < SQUAT_THRESHOLD) {
+                        cycleState = "RISING";
+                        document.getElementById("cycleStatus").innerText = "⬆️ 상승 중...";
+                    }
+
+                    // 최하단 미도달 시 리셋
+                    if (knee_angle > STANDING_THRESHOLD) {
+                        cycleState = "STANDING";
+                        minKneeAngle = 180;
+                        capturedImage = null;
+                        document.getElementById("cycleStatus").innerText = "❌ 더 깊이 앉으세요";
+                    }
+                }
+                else if (cycleState === "RISING") {
+                    if (knee_angle > STANDING_THRESHOLD) {
+                        cycleState = "STANDING";
+                        onCycleComplete();
+                    }
+                }
+            }
+
+            requestAnimationFrame(predict);
+        }
+
+        async function start() {
+            document.getElementById("cycleStatus").innerText = "📷 카메라 로딩 중...";
+            await initCamera();
+            document.getElementById("cycleStatus").innerText = "🤖 AI 모델 로딩 중...";
+            await initPose();
+            document.getElementById("cycleStatus").innerText = "✅ 준비 완료! 스쿼트를 시작하세요";
+            predict();
+        }
+
+        window.onload = start;
+    </script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h2 {
+            color: #ff6b35;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .badge {
+            background: #ff6b35;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .video-section {
+            flex: 1;
+            min-width: 640px;
+        }
+
+        #canvas {
+            border: 3px solid #ff6b35;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(255, 107, 53, 0.3);
+            width: 100%;
+            max-width: 640px;
+        }
+
+        .info-section {
+            flex: 0 0 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card h3 {
+            margin: 0 0 15px 0;
+            color: #ff6b35;
+            font-size: 16px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .rep-count {
+            font-size: 64px;
+            text-align: center;
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .pose-state {
+            font-size: 48px;
+            text-align: center;
+        }
+
+        #cycleStatus {
+            text-align: center;
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 10px;
+        }
+
+        #feedbackText {
+            font-size: 18px;
+            line-height: 1.6;
+            color: #ffcc00;
+            min-height: 50px;
+            text-align: center;
+        }
+
+        #capturedImg {
+            width: 100%;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: none;
+            border: 2px solid #ff6b35;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>🏋️ 스쿼트 코치 <span class="badge">이미지 분석</span></h2>
+
+    <div class="container">
+        <div class="video-section">
+            <video id="video" playsinline style="display:none;"></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="info-section">
+            <div class="card">
+                <h3>💪 스쿼트 횟수</h3>
+                <div class="rep-count" id="repCount">0</div>
+                <div class="pose-state" id="poseState">🧍</div>
+                <div id="cycleStatus">대기 중...</div>
+            </div>
+
+            <div class="card">
+                <h3>📊 실시간 측정</h3>
+                <div class="stat-row">
+                    <span>무릎 각도</span>
+                    <span class="stat-value"><span id="kneeAngle">0</span>°</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📸 캡처된 이미지</h3>
+                <img id="capturedImg" src="" alt="캡처된 이미지">
+            </div>
+
+            <div class="card">
+                <h3>🗣️ AI 코치 피드백</h3>
+                <p id="feedbackText">최하단에서 이미지를 캡처하여<br>AI가 자세를 분석합니다.</p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
