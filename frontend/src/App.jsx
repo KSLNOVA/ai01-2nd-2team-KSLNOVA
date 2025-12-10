@@ -79,10 +79,20 @@ function App() {
   const [sessionStart, setSessionStart] = useState(null);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [ttsHistory, setTtsHistory] = useState([]);
-  const [analysisNote, setAnalysisNote] = useState('분석 프레임을 기다리는 중…');
+  const [analysisNote, setAnalysisNote] = useState('로컬 분석 중…');
   const [feedbackExercise, setFeedbackExercise] = useState('');
+  // 팀원 image_feedback 기능을 사이드바에 표시하기 위한 상태
+  const [imgRepCount, setImgRepCount] = useState(0);
+  const [imgKneeAngle, setImgKneeAngle] = useState(0);
+  const [imgPoseState, setImgPoseState] = useState('🧍');
+  const [imgCaptured, setImgCaptured] = useState('');
+  const [imgFeedback, setImgFeedback] = useState('최하단에서 이미지를 캡처해 AI가 분석합니다.');
+  const [imgStatus, setImgStatus] = useState('대기 중');
+  const imgRepRef = useRef(0);
 
   const videoRef = useRef(null);
+  const poseCanvasRef = useRef(null);
+  const hiddenCanvasRef = useRef(null);
   const synthRef = useRef(null);
   const voiceRef = useRef(null);
   const lastSpokenRef = useRef('');
@@ -94,6 +104,11 @@ function App() {
   const lastFrameTsRef = useRef(0);
   const lastSpokenAtRef = useRef(0);
   const videoErrorRef = useRef(0);
+  const poseLandmarkerRef = useRef(null);
+  const frameIndexRef = useRef(0);
+  const smoothedLmRef = useRef(null);
+  const poseLoopStopRef = useRef(false);
+  const imgProcessingRef = useRef(false);
 
   const youtubeReady = Boolean(YOUTUBE_API_KEY);
 
@@ -115,7 +130,7 @@ function App() {
 
   const [isRecording, setIsRecording] = useState(false);
   const [repCount, setRepCount] = useState(0);
-  const wsRef = useRef(null);
+  const wsRef = useRef(null); // 더 이상 사용하지 않지만 기존 구조 유지
   const canvasRef = useRef(null);
   const youtubeBlockedRef = useRef(false);
 
@@ -140,14 +155,7 @@ function App() {
   }, [processedFrame]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isRecording) return;
-      const gap = Date.now() - (lastFrameTsRef.current || 0);
-      if (gap > 4000 && !processedFrameRef.current) {
-        setAnalysisNote('분석 프레임이 도착하지 않았습니다. 서버 실행/WS 연결을 확인하세요.');
-      }
-    }, 1200);
-    return () => clearInterval(interval);
+    // WS 기반 분석을 제거했으므로 타임아웃 알림을 비활성화
   }, [isRecording]);
 
   useEffect(() => {
@@ -165,129 +173,22 @@ function App() {
   }, [sessionStart, isRecording]);
 
   // WebSocket 연결 및 프레임 전송
-  useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    setWsStatus('connecting');
-    let active = true;
-
-    ws.onopen = () => {
-      if (!active) return;
-      setWsStatus('connected');
-      ws.send(`SET_EXERCISE:${exerciseRef.current || exercise}`);
-    };
-
-    ws.onmessage = (event) => {
-      if (!active) return;
-      const data = JSON.parse(event.data);
-      if (data.type === 'FEEDBACK') {
-        // 실시간 피드백 처리
-        if (data.instant_feedback) {
-          setFeedback(data.instant_feedback);
-          setFeedbackExercise(exerciseRef.current);
-        }
-        // 코치 피드백 (LLM) 처리
-        if (data.coach_feedback) {
-          const exNow = exerciseRef.current;
-          appendLog(data.coach_feedback);
-          speakFeedback(data.coach_feedback, exNow);
-        }
-        // 렙 카운트 업데이트
-        setRepCount(data.reps);
-        setIsRecording(data.is_recording);
-        if (data.image) {
-          setProcessedFrame(data.image);
-          lastFrameTsRef.current = Date.now();
-          setAnalysisNote('서버 분석 프레임 수신 중');
-        }
-      } else if (data.type === 'REPORT') {
-        // 최종 리포트 처리
-        appendLog(`[종합 리포트] ${data.content}`);
-        setFeedback('운동이 종료되었습니다. 리포트를 확인하세요.');
-        const now = new Date();
-        setHistory((prev) => [
-          {
-            date: now.toLocaleDateString('ko-KR'),
-            exercise: exerciseRef.current,
-            set: durationRef.current ? `${durationRef.current}초` : `${repRef.current}회`,
-            summary: truncate(data.content, 72),
-          },
-          ...prev,
-        ].slice(0, 20));
-        setSessionStart(null);
-        setSessionDuration(0);
-        durationRef.current = 0;
-      }
-    };
-
-    ws.onerror = () => {
-      if (!active) return;
-      setWsStatus('disconnected');
-      setAnalysisNote('WebSocket 연결이 끊어졌습니다. 서버 실행/포트를 확인하세요.');
-    };
-
-    ws.onclose = () => {
-      if (!active) return;
-      setWsStatus('disconnected');
-      setAnalysisNote('WebSocket 연결이 종료되었습니다. 서버 실행/포트를 확인하세요.');
-    };
-
-    return () => {
-      active = false;
-      ws.close();
-    };
-  }, []);
-
-  // 프레임 전송 루프
-  useEffect(() => {
-    if (!cameraReady || !isRecording) return;
-
-    const interval = setInterval(() => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        // 좌우 반전 없이 실제 방향으로 캡처하기 위해 캔버스에 뒤집어서 그린다
-        ctx.save();
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        if (canvas.width && canvas.height) {
-          const base64 = canvas.toDataURL('image/jpeg', 0.8);
-          if (!processedFrameRef.current) {
-            setProcessedFrame(base64);
-            setAnalysisNote('카메라 프레임 표시 중 (분석 대기)…');
-          }
-          wsRef.current.send(base64);
-        }
-      }
-    }, 100); // 10 FPS
-
-    return () => clearInterval(interval);
-  }, [cameraReady, isRecording]);
+  // WS 비활성화: 기존 루프 제거
 
   const toggleRecording = () => {
-    if (!wsRef.current) return;
     if (isRecording) {
       if (sessionStart) {
         setSessionDuration(Math.max(1, Math.round((Date.now() - sessionStart) / 1000)));
       }
-      wsRef.current.send('STOP_RECORDING');
       setIsRecording(false);
-      setAnalysisNote('분석 프레임을 기다리는 중…');
+      setAnalysisNote('로컬 분석 중지');
     } else {
-      wsRef.current.send('START_RECORDING');
       setIsRecording(true);
       setRepCount(0);
       repRef.current = 0;
       setCoachingLog([]); // 로그 초기화
       setProcessedFrame('');
-      setAnalysisNote('카메라 프레임을 불러오는 중…');
+      setAnalysisNote('로컬 분석 준비 중…');
       const startedAt = Date.now();
       setSessionStart(startedAt);
       durationRef.current = 0;
@@ -309,10 +210,6 @@ function App() {
   };
 
   useEffect(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(`SET_EXERCISE:${exercise}`);
-      wsRef.current.send('STOP_RECORDING');
-    }
     setIsRecording(false);
     setSessionStart(null);
     setSessionDuration(0);
@@ -320,7 +217,7 @@ function App() {
     repRef.current = 0;
     setRepCount(0);
     setProcessedFrame('');
-    setAnalysisNote('분석 프레임을 기다리는 중…');
+    setAnalysisNote('로컬 분석 중…');
     setTtsHistory([]);
     setFeedbackExercise(exerciseRef.current);
     setCoachingLog([]);
@@ -456,6 +353,266 @@ function App() {
       }
     };
   }, []);
+
+  // 팀원 image_feedback 로직을 기존 웹캠 스트림으로 계산하여 값만 사이드바에 표시
+  useEffect(() => {
+    if (!cameraReady || !videoRef.current) return;
+    let cancelled = false;
+    poseLoopStopRef.current = false;
+
+    const SMOOTHING_FACTOR = 0.7;
+    const STANDING_THRESHOLD = 160;
+    const SQUAT_THRESHOLD = 110;
+    const VISIBILITY_THRESHOLD = 0.7;
+    let cycleState = 'STANDING';
+    let minKneeAngle = 180;
+    let capturedImage = null;
+
+    const smoothLandmarks = (current) => {
+      if (!smoothedLmRef.current) {
+        smoothedLmRef.current = current.map((lm) => ({ ...lm }));
+        return smoothedLmRef.current;
+      }
+      for (let i = 0; i < current.length; i++) {
+        smoothedLmRef.current[i].x =
+          smoothedLmRef.current[i].x * (1 - SMOOTHING_FACTOR) + current[i].x * SMOOTHING_FACTOR;
+        smoothedLmRef.current[i].y =
+          smoothedLmRef.current[i].y * (1 - SMOOTHING_FACTOR) + current[i].y * SMOOTHING_FACTOR;
+        smoothedLmRef.current[i].z =
+          smoothedLmRef.current[i].z * (1 - SMOOTHING_FACTOR) + current[i].z * SMOOTHING_FACTOR;
+      }
+      return smoothedLmRef.current;
+    };
+
+    const checkFullBodyVisibility = (landmarks) => {
+      const lowerBodyPoints = [23, 24, 25, 26, 27, 28];
+      for (const idx of lowerBodyPoints) {
+        const lm = landmarks[idx];
+        if (!lm) return false;
+        if (lm.y > 1.0 || lm.y < 0) return false;
+        if (lm.visibility !== undefined && lm.visibility < VISIBILITY_THRESHOLD) return false;
+      }
+      return true;
+    };
+
+    const calculateAngle = (a, b, c) => {
+      const AB = [a.x - b.x, a.y - b.y];
+      const CB = [c.x - b.x, c.y - b.y];
+      const dot = AB[0] * CB[0] + AB[1] * CB[1];
+      const magnitude = Math.hypot(...AB) * Math.hypot(...CB);
+      if (magnitude === 0) return 180;
+      return Math.acos(Math.max(-1, Math.min(1, dot / magnitude))) * (180 / Math.PI);
+    };
+
+    const captureCanvas = () => {
+      const canvas = hiddenCanvasRef.current;
+      if (!canvas) return null;
+      return canvas.toDataURL('image/jpeg', 0.8);
+    };
+
+    const sendImageForAnalysis = async (imageData, count) => {
+      const endpoint =
+        (typeof window !== 'undefined' && window.ENV && window.ENV.IMAGE_ANALYZE_ENDPOINT) ||
+        'http://localhost:8002/analyze-image';
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageData, rep_count: count }),
+        });
+        const data = await res.json();
+        return data.feedback;
+      } catch (err) {
+        console.error('이미지 분석 호출 오류', err);
+        return null;
+      }
+    };
+
+    const onCycleComplete = async () => {
+      if (imgProcessingRef.current || !capturedImage) return;
+      imgProcessingRef.current = true;
+      imgRepRef.current += 1;
+      const nextRep = imgRepRef.current;
+      setImgRepCount(nextRep);
+      setRepCount(nextRep); // 상단 바 카운트도 동기화
+      setImgStatus('📸 이미지 분석 중...');
+      const feedbackText = await sendImageForAnalysis(capturedImage, nextRep);
+      const safeFeedback = feedbackText || '분석 중 오류가 발생했습니다.';
+      setImgFeedback(safeFeedback);
+      setFeedback(safeFeedback); // 중앙 피드백도 동일하게 표시
+      setImgStatus(`✅ ${nextRep}회 완료`);
+      speakFeedback(safeFeedback, exerciseRef.current);
+      capturedImage = null;
+      minKneeAngle = 180;
+      imgProcessingRef.current = false;
+    };
+
+    const startLoop = async () => {
+      try {
+        if (!poseLandmarkerRef.current) {
+          const vision = window.TasksVision;
+          if (!vision) {
+            setImgStatus('모델 로드 실패 (TasksVision 없음)');
+            return;
+          }
+          const fileset = await vision.FilesetResolver.forVisionTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+          );
+          poseLandmarkerRef.current = await vision.PoseLandmarker.createFromOptions(fileset, {
+            baseOptions: {
+              modelAssetPath:
+                'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+            },
+            runningMode: 'VIDEO',
+            numPoses: 1,
+          });
+        }
+        setImgStatus('✅ 준비 완료! 스쿼트를 시작하세요');
+      } catch (err) {
+        console.error('Pose 모델 로드 오류', err);
+        setImgStatus('모델 로딩 실패');
+        return;
+      }
+
+      hiddenCanvasRef.current = hiddenCanvasRef.current || document.createElement('canvas');
+      const hCanvas = hiddenCanvasRef.current;
+      const hCtx = hCanvas.getContext('2d');
+      const poseCanvas = poseCanvasRef.current;
+      const poseCtx = poseCanvas ? poseCanvas.getContext('2d') : null;
+
+      const loop = () => {
+        if (poseLoopStopRef.current || cancelled) return;
+        const videoEl = videoRef.current;
+        if (!videoEl || videoEl.readyState < 2) {
+          requestAnimationFrame(loop);
+          return;
+        }
+        const vw = videoEl.videoWidth || 640;
+        const vh = videoEl.videoHeight || 480;
+        if (hCanvas.width !== vw || hCanvas.height !== vh) {
+          hCanvas.width = vw;
+          hCanvas.height = vh;
+        }
+        if (poseCanvas && (poseCanvas.width !== vw || poseCanvas.height !== vh)) {
+          poseCanvas.width = vw;
+          poseCanvas.height = vh;
+        }
+        hCtx.drawImage(videoEl, 0, 0, vw, vh);
+        if (poseCtx) {
+          poseCtx.clearRect(0, 0, vw, vh);
+        }
+
+        if (poseLandmarkerRef.current) {
+          const results = poseLandmarkerRef.current.detectForVideo(videoEl, performance.now());
+          if (results.landmarks && results.landmarks[0]) {
+            const lm = smoothLandmarks(results.landmarks[0]);
+            const fullBodyOk = checkFullBodyVisibility(lm);
+            if (!fullBodyOk) {
+              setImgStatus('⚠️ 전신이 보이도록 위치해주세요');
+              requestAnimationFrame(loop);
+              return;
+            }
+            const hip = lm[23].z < lm[24].z ? lm[23] : lm[24];
+            const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
+            const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
+            const kneeAngle = calculateAngle(hip, knee, ankle);
+            setImgKneeAngle(kneeAngle.toFixed(1));
+
+            // 스켈레톤 오버레이 (하체 주요 관절만)
+            if (poseCtx) {
+              const squatIdx = [11, 12, 23, 24, 25, 26, 27, 28];
+              const lineColor = '#ffcc00'; // 눈에 띄는 노란색 라인
+              const pointColor = '#ff4444'; // 눈에 띄는 빨간색 포인트
+              poseCtx.strokeStyle = lineColor;
+              poseCtx.lineWidth = 3;
+              poseCtx.fillStyle = pointColor;
+              const connections = [
+                [11, 12],
+                [11, 23],
+                [12, 24],
+                [23, 24],
+                [23, 25],
+                [24, 26],
+                [25, 27],
+                [26, 28],
+              ];
+              const drawSkeleton = (ctx) => {
+                ctx.strokeStyle = lineColor;
+                ctx.lineWidth = 3;
+                ctx.fillStyle = pointColor;
+                connections.forEach(([a, b]) => {
+                  if (lm[a] && lm[b]) {
+                    ctx.beginPath();
+                    ctx.moveTo(lm[a].x * vw, lm[a].y * vh);
+                    ctx.lineTo(lm[b].x * vw, lm[b].y * vh);
+                    ctx.stroke();
+                  }
+                });
+                squatIdx.forEach((idx) => {
+                  if (lm[idx]) {
+                    ctx.beginPath();
+                    ctx.arc(lm[idx].x * vw, lm[idx].y * vh, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
+                });
+              };
+              drawSkeleton(poseCtx);
+              if (hCtx) {
+                drawSkeleton(hCtx); // 캡처 이미지에도 스켈레톤 포함
+              }
+            }
+
+            if (cycleState === 'STANDING') {
+              setImgPoseState('🧍');
+              if (kneeAngle < STANDING_THRESHOLD - 10) {
+                cycleState = 'SQUATTING';
+                minKneeAngle = kneeAngle;
+                setImgStatus('⬇️ 하강 중...');
+                setImgPoseState('⬇️');
+              }
+            } else if (cycleState === 'SQUATTING') {
+              if (kneeAngle < minKneeAngle) {
+                minKneeAngle = kneeAngle;
+                if (kneeAngle < SQUAT_THRESHOLD) {
+                  capturedImage = captureCanvas();
+                  setImgCaptured(capturedImage);
+                  setImgStatus('📸 최하단 캡처!');
+                }
+              }
+              if (kneeAngle > minKneeAngle + 20 && minKneeAngle < SQUAT_THRESHOLD) {
+                cycleState = 'RISING';
+                setImgStatus('⬆️ 상승 중...');
+                setImgPoseState('⬆️');
+              }
+              if (kneeAngle > STANDING_THRESHOLD) {
+                cycleState = 'STANDING';
+                minKneeAngle = 180;
+                capturedImage = null;
+                setImgStatus('❌ 더 깊이 앉으세요');
+                setImgPoseState('🧍');
+              }
+            } else if (cycleState === 'RISING') {
+              if (kneeAngle > STANDING_THRESHOLD) {
+                cycleState = 'STANDING';
+                setImgPoseState('🧍');
+                onCycleComplete();
+              }
+            }
+          }
+        }
+        requestAnimationFrame(loop);
+      };
+
+      loop();
+    };
+
+    startLoop();
+
+    return () => {
+      cancelled = true;
+      poseLoopStopRef.current = true;
+    };
+  }, [cameraReady]);
 
   const speakFeedback = (text, exerciseName) => {
     if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported) return;
@@ -840,17 +997,15 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div className="media-card analysis-card">
-                  <div className="media-title-row">
-                    <span className="section-title">라이브 + 분석 뷰</span>
-                    <div className="media-labels">
-                      <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
-                      <span className={`media-label ${wsStatus === 'connected' ? 'media-label-live' : ''}`}>
-                        {wsStatus === 'connected' ? 'WS 연결' : 'WS 대기'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="single-video">
+            <div className="media-card analysis-card">
+              <div className="media-title-row">
+                <span className="section-title">라이브 + 분석 뷰</span>
+                <div className="media-labels">
+                  <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
+                  <span className="media-label media-label-live">로컬 분석</span>
+                </div>
+              </div>
+              <div className="single-video">
                     <div className="video-frame-shell analysis-shell">
                       <video
                         ref={videoRef}
@@ -858,7 +1013,18 @@ function App() {
                         muted
                         playsInline
                         className={`webcam ${processedFrame ? 'webcam-hidden' : ''}`}
-                        style={{ transform: 'scaleX(1)' }}
+                        style={{ transform: 'scaleX(1)', width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                      <canvas
+                        ref={poseCanvasRef}
+                        className="pose-overlay"
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          pointerEvents: 'none',
+                          width: '100%',
+                          height: '100%',
+                        }}
                       />
                       {processedFrame ? (
                         <img
@@ -898,7 +1064,7 @@ function App() {
               <div className="feedback-header">
                 <div>
                   <h3 className="section-title">자세 피드백</h3>
-                  <div className="section-caption">실시간 코칭 문구가 여기에 쌓입니다.</div>
+                  <div className="section-caption">이미지 분석 결과를 여기서 확인하세요.</div>
                 </div>
                 <div className="tts-controls">
                   {!ttsSupported ? (
@@ -929,6 +1095,27 @@ function App() {
 
             {showRightPanel && (
               <div className="panel">
+                <div className="panel-header">이미지 기반 피드백</div>
+                <div className="stat-card" style={{ marginBottom: 10 }}>
+                  <div className="stat-label">스쿼트 횟수</div>
+                  <div className="stat-value" style={{ fontSize: 28 }}>{imgRepCount}</div>
+                  <div className="stat-meta">{imgStatus}</div>
+                </div>
+                <div className="stat-card" style={{ marginBottom: 10 }}>
+                  <div className="stat-label">무릎 각도</div>
+                  <div className="stat-value" style={{ fontSize: 24 }}>
+                    {imgKneeAngle}°
+                  </div>
+                  <div className="stat-meta">자세 상태: {imgPoseState}</div>
+                </div>
+                <div className="stat-card" style={{ marginBottom: 10 }}>
+                  <div className="stat-label">캡처된 이미지</div>
+                  {imgCaptured ? (
+                    <img src={imgCaptured} alt="캡처" style={{ width: '100%', borderRadius: 8, marginTop: 6 }} />
+                  ) : (
+                    <div className="helper-text">최하단에서 자동으로 캡처됩니다.</div>
+                  )}
+                </div>
                 <div className="panel-header">지난 운동 기록</div>
                 <table className="table">
                   <thead>

@@ -23,6 +23,11 @@
     }
   </style>
   <script src="./env.js"></script>
+  <!-- Mediapipe Tasks Vision: ESM을 미리 로드해 window.TasksVision에 담아둠 -->
+  <script type="module">
+    import * as tasksVision from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+    window.TasksVision = tasksVision;
+  </script>
 </head>
 
 <body>
