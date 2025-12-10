@@ -1,6 +1,7 @@
 import base64
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict
 
 import cv2
@@ -13,10 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from dotenv import load_dotenv
 
+ROOT_DIR = Path(__file__).resolve().parent.parent  # repo root
+FRONTEND_DIR = ROOT_DIR / "frontend"
+VIDEO_DIR = Path(__file__).resolve().parent / "video"
+VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
 # ---------------------------------------------------------
 # 설정
 # ---------------------------------------------------------
-load_dotenv()
+load_dotenv(ROOT_DIR / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
@@ -88,12 +94,10 @@ class VLMFeedbackSquat:
         self.min_knee_angle = 180
         self.lowest_frame = None
         self.lowest_metrics = None
-        if not os.path.exists("video"):
-            os.makedirs("video")
         filename = datetime.now().strftime("%Y%m%d_%H%M")
-        path = os.path.join("video", f"{filename}.mp4")
+        path = VIDEO_DIR / f"{filename}.mp4"
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.video_writer = cv2.VideoWriter(path, fourcc, 10.0, (640, 480))
+        self.video_writer = cv2.VideoWriter(str(path), fourcc, 10.0, (640, 480))
         print(f"Recording Started: {path}")
 
     def stop_recording(self):
@@ -300,7 +304,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # 정적 파일 서빙 (루트)
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
 
 
 if __name__ == "__main__":

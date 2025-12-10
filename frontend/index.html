@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="./run.css" />
+  <link rel="stylesheet" href="./src/styles/main.css" />
   <!-- React 18 CDN -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -27,15 +27,8 @@
 
 <body>
   <div id="root"></div>
-  <script type="text/javascript">
-    window.ENV =
-      window.ENV ||
-      {
-        YOUTUBE_API_KEY: '',
-        OPENAI_API_KEY: '',
-      };
-  </script>
-  <script type="text/babel" data-presets="env,react" src="./run.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="./src/App.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="./src/main.jsx"></script>
 
 </body>
 

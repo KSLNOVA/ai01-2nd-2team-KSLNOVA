@@ -40,8 +40,9 @@ def main():
         "};\n"
     )
 
-    Path("env.js").write_text(js, encoding="utf-8")
-    print("env.js 생성 완료:")
+    target = Path("frontend/env.js")
+    target.write_text(js, encoding="utf-8")
+    print("frontend/env.js 생성 완료:")
     print(js)
 
 
