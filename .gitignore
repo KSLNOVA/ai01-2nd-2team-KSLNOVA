@@ -1,5 +1,6 @@
 # 환경 변수 파일
 .env
+frontend/.env
 
 # 파이썬 캐시/빌드 파일
 __pycache__/
@@ -13,6 +14,8 @@ env/
 # VSCode 설정
 .vscode/
 env.js
+frontend/env.js
 video/
 
+# 동영상/바이너리
 video/
