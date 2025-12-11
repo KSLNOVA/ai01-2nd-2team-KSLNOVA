@@ -3,19 +3,21 @@
 로컬 Mediapipe로 스켈레톤/카운트 계산 → 최하단 캡처 이미지를 OpenAI API로 보내 피드백을 받는 흐름입니다.
 
 ## 0. 필수 경로/파일
-- `backend/fserver.py`
+- `backend/exercise_server.py`
 - `frontend/index.html`
 - `frontend/src/App.jsx`
 - `frontend/src/main.jsx`
 - `frontend/src/styles/main.css`
-- `.env` 와 `env.js` ( `python generate_env_js.py`로 생성)
 - `requirements.txt`
+- `frontend/.env` → `frontend/env.js` ( `python generate_env_js.py` 로 생성)
 
 
 
 ## 1. requirements.txt 설치
-루트에서 실행
+루트에서 실행 (conda 권장)
 ```bash
+# 예시: conda create -n exercise-coach python=3.10.19
+# conda activate exercise-coach
 pip install -r requirements.txt
 ```
 
@@ -23,11 +25,7 @@ pip install -r requirements.txt
 1) .env에 들어가야할 내용
 ```bash
 OPENAI_API_KEY='your key'
-
-
 YOUTUBE_API_KEY='your key'
-
-
 IMAGE_ANALYZE_ENDPOINT=http://localhost:8003/analyze-image
 ```
 
