@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQUAT COACH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="./src/styles/main.css" />
+  <!-- React 18 CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Babel: 브라우저에서 JSX 변환 -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0b1221;
+    }
+  </style>
+  <script src="./env.js"></script>
+  <!-- Mediapipe Tasks Vision: ESM을 미리 로드해 window.TasksVision에 담아둠 -->
+  <script type="module">
+    import * as tasksVision from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+    window.TasksVision = tasksVision;
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="env,react" src="./src/App.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="./src/main.jsx"></script>
+
+</body>
+
+</html>

@@ -27,21 +27,26 @@ def js_escape(value: str) -> str:
 
 
 def main():
-    env_path = Path(".env")
+    script_dir = Path(__file__).resolve().parent           # /repo/frontend
+    repo_root = script_dir.parent                          # /repo
+    env_path = repo_root / ".env"                          # .env는 루트에 있다고 가정
     env = parse_env(env_path)
 
     yt = env.get("YOUTUBE_API_KEY", "")
     oa = env.get("OPENAI_API_KEY", "")
+    endpoint = env.get("IMAGE_ANALYZE_ENDPOINT", "")
 
     js = (
         "window.ENV = {\n"
         f"  YOUTUBE_API_KEY: '{js_escape(yt)}',\n"
         f"  OPENAI_API_KEY: '{js_escape(oa)}',\n"
+        f"  IMAGE_ANALYZE_ENDPOINT: '{js_escape(endpoint)}',\n"
         "};\n"
     )
 
-    Path("env.js").write_text(js, encoding="utf-8")
-    print("env.js 생성 완료:")
+    target = script_dir / "env.js"                         # 항상 frontend/env.js로 씀
+    target.write_text(js, encoding="utf-8")
+    print(f"{target} 생성 완료:")
     print(js)
 
 
