@@ -1,4 +1,4 @@
-# ai01-2nd-2team-KSLNOVA
+# ai01-2nd-KSLNOVA-EXERCISE COACH
 The second project of NOVA - **EXERCISE COACH**
 
 ----------------------------
@@ -6,7 +6,7 @@ The second project of NOVA - **EXERCISE COACH**
 # 프로젝트 기획서
 
 ## 1. 프로젝트 정의
-- **프로젝트 이름** : EXERCISE COACH
+- **프로젝트 이름** : EXERCISE COACH(EC)
 - **목표**  
   - 브라우저에서 웹캠 캡처 → 최하단 이미지만 FastAPI REST(`/analyze-image`)로 전송해 분석  
   - 로컬 Mediapipe Pose로 스쿼트/숄더프레스 관절 각도·rep 카운트 및 스켈레톤/캡처 표시  
@@ -145,6 +145,18 @@ ai01-2nd-2team-KSLNOVA/
 
 ---------------------------
 
+# 개발 환경(Conda 권장)
+```bash
+conda create -n exercise-coach python=3.10.19
+conda activate exercise-coach
+```
+
+```bash
+pip install -r requirements.txt
+```
+- 키/엔드포인트: `.env`(루트 또는 `frontend/.env`)에 넣은 뒤 `python frontend/generate_env_js.py`로 `frontend/env.js` 생성
+---------------------------
+
 # 요구사항 정의서
 
 ## 1. 기능 요구사항
@@ -254,7 +266,33 @@ flowchart LR
 - OpenAI API: 서버에서 피드백/채팅 생성
 - YouTube Data API: 서버에서 추천 검색, 실패 시 프론트에서 기본 영상 폴백
 
---------------------------
+---------------------------
+
+# 실행 방법 (자세한 절차는 HOWTORUN.md 참고)
+1) `.env` 준비  
+```
+OPENAI_API_KEY=...
+YOUTUBE_API_KEY=...
+IMAGE_ANALYZE_ENDPOINT=http://localhost:8003/analyze-image
+```
+2) 프론트 env.js 생성  
+```
+cd frontend
+python generate_env_js.py
+```
+3) 백엔드 실행  
+```
+cd backend
+uvicorn exercise_server:app --host 0.0.0.0 --port 8003
+```
+4) 프론트 실행  
+```
+cd frontend
+python -m http.server 5500
+```
+5) 브라우저 접속: `http://localhost:5500/index.html` (DevTools에서 Disable cache 체크 후 새로고침 권장 OR `Ctrl+Shift+R`)
+
+---------------------------
 
 # 클라우드 아키텍처 설계서
 
