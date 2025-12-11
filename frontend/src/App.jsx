@@ -619,6 +619,21 @@ function App() {
     };
 
     const checkFullBodyVisibility = (landmarks) => {
+      // 숄더프레스는 상체(허리 위)만 보여도 OK
+      if (exerciseRef.current === '숄더프레스') {
+        const upperBodyPoints = [11, 12, 23, 24]; // 어깨, 골반
+        for (const idx of upperBodyPoints) {
+          const lm = landmarks[idx];
+          if (!lm) return false;
+          // 화면 안에 있는지
+          if (lm.x < 0 || lm.x > 1 || lm.y < 0 || lm.y > 1) return false;
+          // 신뢰도 체크
+          if (lm.visibility !== undefined && lm.visibility < VISIBILITY_THRESHOLD) return false;
+        }
+        return true;
+      }
+
+      // 스쿼트는 전신(특히 발)까지 보여야 함
       const lowerBodyPoints = [23, 24, 25, 26, 27, 28];
       for (const idx of lowerBodyPoints) {
         const lm = landmarks[idx];
@@ -799,40 +814,99 @@ function App() {
               }
             }
 
-            if (cycleState === 'STANDING') {
-              setImgPoseState('🧍');
-              if (kneeAngle < STANDING_THRESHOLD - 10) {
-                cycleState = 'SQUATTING';
-                minKneeAngle = kneeAngle;
-                setImgStatus('⬇️ 하강 중...');
-                setImgPoseState('⬇️');
-              }
-            } else if (cycleState === 'SQUATTING') {
-              if (kneeAngle < minKneeAngle) {
-                minKneeAngle = kneeAngle;
-                if (kneeAngle < SQUAT_THRESHOLD) {
-                  capturedImage = captureCanvas();
-                  setImgCaptured(capturedImage);
-                  setImgStatus('📸 최하단 캡처!');
+            if (exerciseRef.current === '숄더프레스') {
+              // 숄더프레스 전용 로직 (팔꿈치 각도 기반)
+              // 12(우어깨)-14(우팔꿈치)-16(우손목), 11(좌어깨)-13(좌팔꿈치)-15(좌손목)
+              // 여기선 오른쪽(12-14-16) 예시, 혹은 둘 중 잘 보이는 쪽 사용
+              // 편의상 오른쪽 기준 or 평균
+              const rightElbowAngle = calculateAngle(lm[12], lm[14], lm[16]);
+              const leftElbowAngle = calculateAngle(lm[11], lm[13], lm[15]);
+              const avgElbowAngle = (rightElbowAngle + leftElbowAngle) / 2;
+
+              setImgKneeAngle(`${avgElbowAngle.toFixed(0)}`); // UI에 팔꿈치 각도 표시
+
+              // State Machine for Shoulder Press
+              // DOWN (Start): 팔꿈치 < 100도
+              // UP (End): 팔꿈치 > 150도
+
+              if (cycleState === 'STANDING') { // 초기 상태 (준비)
+                setImgPoseState('READY');
+                if (avgElbowAngle < 100) {
+                  cycleState = 'DOWN';
+                  setImgStatus('⬆️ 위로 미세요');
+                  setImgPoseState('💪');
+                }
+              } else if (cycleState === 'DOWN') {
+                if (avgElbowAngle > 150) {
+                  cycleState = 'UP';
+                  setImgStatus('⬇️ 다시 내리세요');
+                  setImgPoseState('🙌');
+
+                  // 최상단 도달 시점이니 여기서 캡처할 수도 있고, 
+                  // 혹은 가장 수축된 순간이니 이때 분석? 
+                  // 보통 숄더프레스는 "내렸을 때"가 아니라 "밀어 올린 후 버틸 때" or "내려서 준비자세"가 중요.
+                  // 요구사항: "숄더프레스 동작을 해야 카운터가 올라가도록" -> UP 상태 찍고 다시 DOWN 오면 1회?
+                }
+              } else if (cycleState === 'UP') {
+                // 다시 내려오면 1회 인정
+                if (avgElbowAngle < 110) {
+                  cycleState = 'DOWN';
+                  setImgStatus('✅ 1회 완료');
+                  setImgPoseState('💪');
+                  onCycleComplete(); // 카운트 증가 + 이미지 분석(필요시)
+
+                  // 캡처는 "가장 힘든 구간" or "자세가 무너질 구간".
+                  // 숄더프레스는 팔이 벌어지거나 허리가 꺾이는 게 문제.
+                  // DOWN 상태(시작점)이나 UP 상태(끝점) 중 하나 캡처.
+                  // 여기선 onCycleComplete 내부 로직 따라감 (현재 capturedImage가 없으면 분석 안 함)
+                  // 필요하면 UP 상태에서 capturedImage = captureCanvas() 수행
                 }
               }
-              if (kneeAngle > minKneeAngle + 20 && minKneeAngle < SQUAT_THRESHOLD) {
-                cycleState = 'RISING';
-                setImgStatus('⬆️ 상승 중...');
-                setImgPoseState('⬆️');
+
+              // 숄더프레스용 캡처 로직 (예: UP 상태에서 캡처)
+              if (cycleState === 'UP' && !capturedImage) {
+                // 팔 다 폈을 때 자세 캡처
+                capturedImage = captureCanvas();
+                setImgCaptured(capturedImage);
               }
-              if (kneeAngle > STANDING_THRESHOLD) {
-                cycleState = 'STANDING';
-                minKneeAngle = 180;
-                capturedImage = null;
-                setImgStatus('❌ 더 깊이 앉으세요');
+
+            } else {
+              // 스쿼트 로직 (기존 유지)
+              if (cycleState === 'STANDING') {
                 setImgPoseState('🧍');
-              }
-            } else if (cycleState === 'RISING') {
-              if (kneeAngle > STANDING_THRESHOLD) {
-                cycleState = 'STANDING';
-                setImgPoseState('🧍');
-                onCycleComplete();
+                if (kneeAngle < STANDING_THRESHOLD - 10) {
+                  cycleState = 'SQUATTING';
+                  minKneeAngle = kneeAngle;
+                  setImgStatus('⬇️ 하강 중...');
+                  setImgPoseState('⬇️');
+                }
+              } else if (cycleState === 'SQUATTING') {
+                if (kneeAngle < minKneeAngle) {
+                  minKneeAngle = kneeAngle;
+                  if (kneeAngle < SQUAT_THRESHOLD) {
+                    capturedImage = captureCanvas();
+                    setImgCaptured(capturedImage);
+                    setImgStatus('📸 최하단 캡처!');
+                  }
+                }
+                if (kneeAngle > minKneeAngle + 20 && minKneeAngle < SQUAT_THRESHOLD) {
+                  cycleState = 'RISING';
+                  setImgStatus('⬆️ 상승 중...');
+                  setImgPoseState('⬆️');
+                }
+                if (kneeAngle > STANDING_THRESHOLD) {
+                  cycleState = 'STANDING';
+                  minKneeAngle = 180;
+                  capturedImage = null;
+                  setImgStatus('❌ 더 깊이 앉으세요');
+                  setImgPoseState('🧍');
+                }
+              } else if (cycleState === 'RISING') {
+                if (kneeAngle > STANDING_THRESHOLD) {
+                  cycleState = 'STANDING';
+                  setImgPoseState('🧍');
+                  onCycleComplete();
+                }
               }
             }
           }
@@ -1249,7 +1323,7 @@ function App() {
                         muted
                         playsInline
                         className={`webcam ${processedFrame ? 'webcam-hidden' : ''}`}
-                        style={{ transform: 'scaleX(1)', width: '100%', height: '100%', objectFit: 'cover' }}
+                        style={{ transform: 'scaleX(-1)', width: '100%', height: '100%', objectFit: 'cover' }}
                       />
                       <canvas
                         ref={poseCanvasRef}
@@ -1260,6 +1334,7 @@ function App() {
                           pointerEvents: 'none',
                           width: '100%',
                           height: '100%',
+                          transform: 'scaleX(-1)',
                         }}
                       />
                       {processedFrame ? (
@@ -1267,7 +1342,7 @@ function App() {
                           src={processedFrame}
                           alt="분석 결과 프레임"
                           className="analysis-frame"
-                          style={{ transform: 'scaleX(1)' }}
+                          style={{ transform: 'scaleX(-1)' }}
                         />
                       ) : null}
                       <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -1341,9 +1416,17 @@ function App() {
                   <div className="stat-value" style={{ fontSize: 28 }}>{imgRepCount}</div>
                   <div className="stat-meta">{imgStatus}</div>
                 </div>
-                {exercise !== '숄더프레스' && (
+                {exercise !== '숄더프레스' ? (
                   <div className="stat-card" style={{ marginBottom: 10 }}>
                     <div className="stat-label">무릎 각도</div>
+                    <div className="stat-value" style={{ fontSize: 24 }}>
+                      {`${imgKneeAngle}°`}
+                    </div>
+                    <div className="stat-meta">자세 상태: {imgPoseState}</div>
+                  </div>
+                ) : (
+                  <div className="stat-card" style={{ marginBottom: 10 }}>
+                    <div className="stat-label">팔꿈치 각도</div>
                     <div className="stat-value" style={{ fontSize: 24 }}>
                       {`${imgKneeAngle}°`}
                     </div>
