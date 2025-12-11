@@ -1,15 +1,15 @@
-# ai01-2nd-2team-KSLNOVA
-The second project of NOVA - **SQUAT COACH**
+# ai01-2nd-KSLNOVA-EXERCISE COACH
+The second project of NOVA - **EXERCISE COACH**
 
 ----------------------------
 
 # 프로젝트 기획서
 
 ## 1. 프로젝트 정의
-- **프로젝트 이름** : SQUAT COACH
+- **프로젝트 이름** : EXERCISE COACH(EC)
 - **목표**  
   - 브라우저에서 웹캠 캡처 → 최하단 이미지만 FastAPI REST(`/analyze-image`)로 전송해 분석  
-  - 로컬 Mediapipe Pose로 스쿼트/플랭크 관절 각도·rep 카운트 및 스켈레톤/캡처 표시  
+  - 로컬 Mediapipe Pose로 스쿼트/숄더프레스 관절 각도·rep 카운트 및 스켈레톤/캡처 표시  
   - OpenAI API로 캡처 이미지 분석 후 한국어 피드백 생성, Web Speech API로 TTS 재생  
   - YouTube Data API로 튜토리얼 임베드, 실패 시 기본 영상으로 폴백  
   - 키는 .env → env.js로 주입, 프론트는 정적 서버(`python -m http.server 5500`)에서 동작  
@@ -83,15 +83,14 @@ The second project of NOVA - **SQUAT COACH**
 
 ## 3. 일정 계획
 
-| 작업 항목                  | 시작 날짜   | 종료 날짜   | 기간(일) |
-|---------------------------|------------|------------|---------|
-| 아이디어 회의               | 2025-12-02 | 2025-12-04 | 3       |
-| CV                       | 2025-01-08 | 2025-01-14 | 7       |
-| LLM                       | 2025-01-15 | 2025-01-21 | 7       |
-| TTS                       | 2025-01-22 | 2025-01-28 | 7       |
-| 피드백                      | 2025-01-29 | 2025-02-04 | 7       |
-| UI                       | 2025-02-05 | 2025-02-07 | 3       |
-| 프로젝트 발표               | 2025-12-12 | 2025-12-12 | 1       |
+| 작업 항목                           | 시작 날짜   | 종료 날짜   | 기간(일) |
+|------------------------------------|------------|------------|---------|
+| 아이디어 회의                        | 2025-12-02 | 2025-12-04 | 3       |
+| 요구사항/아키텍처 정리               | 2025-12-05 | 2025-12-05 | 1       |
+| 백엔드 REST 정비(exercise_server)   | 2025-12-06 | 2025-12-08 | 3       |
+| 프론트 UI/Mediapipe 통합            | 2025-12-09 | 2025-12-10 | 2       |
+| LLM/TTS 연동 및 통합 테스트          | 2025-12-11 | 2025-12-11 | 1       |
+| 프로젝트 발표                       | 2025-12-12 | 2025-12-12 | 1       |
 
 -----------------------------
 
@@ -99,7 +98,7 @@ The second project of NOVA - **SQUAT COACH**
 
 ### 1. 📸 CV & 실시간 처리
 - 웹캠 캡처 → 로컬 Mediapipe Pose 각도 계산 → 최하단 이미지 캡처만 REST(`/analyze-image`)로 전송
-- 스쿼트/플랭크 규칙 기반 rep 카운트·instant 피드백(스켈레톤/캡처 오버레이)
+- 스쿼트/숄더프레스 규칙 기반 rep 카운트·instant 피드백(스켈레톤/캡처 오버레이)
 - 프레임 저장/오버레이 표시(WS 사용 안 함)
 
 ### 2. 💬 LLM 코칭 & 리포트
@@ -122,11 +121,47 @@ The second project of NOVA - **SQUAT COACH**
 
 ---------------------------
 
+# 📁 프로젝트 폴더 구조
+
+```
+ai01-2nd-2team-KSLNOVA/
+├── README.md                 # 프로젝트 개요/문서
+├── HOWTORUN.md               # 실행 가이드
+├── requirements.txt          # 백엔드 의존성
+├── .gitignore
+├── frontend/
+│   ├── index.html            # 정적 엔트리(React CDN)
+│   ├── env.js                # .env 기반으로 생성되는 프런트 런타임 설정
+│   ├── .env                  # 프런트용 키/엔드포인트(깃 미추적)
+│   ├── generate_env_js.py    # .env → env.js 변환 스크립트
+│   └── src/
+│       ├── App.jsx           # 메인 UI/로직
+│       ├── main.jsx          # ReactDOM 렌더 부트스트랩
+│       └── styles/main.css   # 스타일
+└── backend/
+    ├── exercise_server.py    # FastAPI REST (OpenAI/YouTube/로그 저장)
+    └── exercise_data/        # 로그·캡처 저장 폴더
+```
+
+---------------------------
+
+# 개발 환경(Conda 권장)
+```bash
+conda create -n exercise-coach python=3.10.19
+conda activate exercise-coach
+```
+
+```bash
+pip install -r requirements.txt
+```
+- 키/엔드포인트: `.env`(루트 또는 `frontend/.env`)에 넣은 뒤 `python frontend/generate_env_js.py`로 `frontend/env.js` 생성
+---------------------------
+
 # 요구사항 정의서
 
 ## 1. 기능 요구사항
-- [FR-01] 브라우저에서 웹캠을 켜고 로컬 Mediapipe로 관절 좌표·각도를 계산한다(WS 미사용).
-- [FR-02] 스쿼트/플랭크 규칙으로 rep 카운트·최하단 캡처를 수행하고, 스켈레톤/캡처를 UI에 표시한다.
+- [FR-01] 브라우저에서 웹캠을 켜고 로컬 Mediapipe로 관절 좌표·각도를 계산한다.
+- [FR-02] 스쿼트/숄더프레스 규칙으로 rep 카운트·최하단 캡처를 수행하고, 스켈레톤/캡처를 UI에 표시한다.
 - [FR-03] 최하단 캡처 이미지를 FastAPI REST(`/analyze-image`)로 전송해 OpenAI API 기반 피드백을 받는다.
 - [FR-04] 브라우저 Web Speech API로 텍스트 피드백을 음성(TTS)으로 재생한다.
 - [FR-05] YouTube Data API(또는 수동 ID/링크)로 튜토리얼 영상을 임베드하고, 실패 시 기본 영상으로 대체한다.
@@ -144,14 +179,14 @@ The second project of NOVA - **SQUAT COACH**
 
 # 프로젝트 설계서
 
-## 1. 시스템 아키텍처 (현재 구현 기준)
-1. **사용자(브라우저)**: 웹캠 ON, 운동 선택(스쿼트/플랭크), 튜토리얼 시청·채팅·TTS 청취  
-2. **Frontend(UI)**: React(JSX/CDN) 단일 페이지, 웹캠 캡처 → WebSocket 전송, 분석 프레임/튜토리얼/채팅/TTS 표시  
-3. **WebSocket 서버(FastAPI)**: `/ws/feedback`에서 프레임 수신·복호화, MediaPipe Pose로 각도·rep 계산, instant/코칭 피드백 JSON 송신  
-4. **LLM 모듈(OpenAI API)**: 코칭 문구·세션 리포트 생성, 운동별로 필터링 후 프론트에 전달  
+## 1. 시스템 아키텍처
+1. **사용자(브라우저)**: 웹캠 ON, 운동 선택(스쿼트/숄더프레스), 튜토리얼 시청·채팅·TTS 청취  
+2. **Frontend(UI)**: React(JSX/CDN) 단일 페이지, 로컬 Mediapipe로 관절/rep 계산·스켈레톤 표시, 최하단 캡처를 REST로 전송, 튜토리얼/채팅/TTS UI  
+3. **FastAPI REST 서버(`exercise_server.py`)**: `/analyze-image`로 캡처 이미지 수신 → OpenAI API로 한국어 피드백 생성, `/chat`으로 질의응답, `/search-youtube`로 추천 검색  
+4. **LLM 모듈(OpenAI API)**: 캡처 기반 피드백/채팅 응답 생성  
 5. **튜토리얼/검색**: YouTube Data API로 추천/검색, 실패 시 기본·nocookie 영상 폴백  
 6. **TTS**: 브라우저 Web Speech API, 쿨다운/중복 방지, 다시 듣기 지원  
-7. **데이터/로그**: 프론트 메모리 세션(역사/rep/feedback), 선택 시 video/에 녹화 파일 저장(로컬)
+7. **데이터/로그**: 프론트 메모리 세션(역사/rep/feedback), 선택 시 `exercise_data/`에 로그·영상 저장(서버)
 
 ## 2. 기술 스택
 ## 📚 TECH STACKS
@@ -160,7 +195,7 @@ The second project of NOVA - **SQUAT COACH**
 <p align="center">
   <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=0B1E2D"/>
   <img src="https://img.shields.io/badge/Babel-F9DC3E?style=for-the-badge&logo=babel&logoColor=000"/>
-  <img src="https://img.shields.io/badge/WebSocket-111827?style=for-the-badge&logo=websocket&logoColor=white"/>
+  <img src="https://img.shields.io/badge/REST%20API-0F172A?style=for-the-badge&logo=fastapi&logoColor=white"/>
   <img src="https://img.shields.io/badge/Web%20Speech%20API-7C3AED?style=for-the-badge&logoColor=white"/>
   <img src="https://img.shields.io/badge/YouTube%20Data%20API-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
 </p>
@@ -171,13 +206,13 @@ The second project of NOVA - **SQUAT COACH**
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
   <img src="https://img.shields.io/badge/Uvicorn-1E90FF?style=for-the-badge&logo=python&logoColor=white"/>
   <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white"/>
+  <img src="https://img.shields.io/badge/httpx-0F172A?style=for-the-badge&logo=python&logoColor=white"/>
 </p>
 
 **CV / 분석**
 <p align="center">
-  <img src="https://img.shields.io/badge/MediaPipe-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
-  <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white"/>
-  <img src="https://img.shields.io/badge/YOLO-000000?style=for-the-badge&logo=github&logoColor=white"/>
+  <img src="https://img.shields.io/badge/MediaPipe%20-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
+  <img src="https://img.shields.io/badge/OpenAI%20Vision-412991?style=for-the-badge&logo=openai&logoColor=white"/>
 </p>
 
 **운영/도구**
@@ -193,66 +228,92 @@ The second project of NOVA - **SQUAT COACH**
 %%{init: {'themeVariables': { 'fontSize': '20px' }, 'flowchart': { 'nodeSpacing': 45, 'rankSpacing': 55 }}}%%
 flowchart LR
 
-    subgraph CLIENT["웹 브라우저 (React + Babel)"]
-        U["사용자\n웹캠 ON / 운동 선택"]
-        UI["UI/JS\n웹캠 프레임 캡처·표시\nYouTube 임베드\nTTS(Web Speech API)"]
+    subgraph CLIENT["웹 브라우저 (React + Mediapipe)"]
+        U["사용자 · 웹캠 ON · 운동 선택"]
+        UI["UI/JS · 로컬 Pose 각도·rep 계산 · 스켈레톤 표시 · 튜토리얼 · TTS"]
     end
 
-    subgraph SERVER["FastAPI 서버"]
-        WS["WebSocket /ws/feedback\n프레임 수신·전송\n실시간 피드백 반환"]
-        CV["CV 모듈\nMediaPipe Pose + 각도 계산\n(추가: YOLO 확장 여지)"]
-        LLM["LLM 코치\nOpenAI API\n코칭/리포트 생성"]
-        LOGS["세션 기록\nrep 카운트·리포트"]
+    subgraph SERVER["FastAPI / exercise_server.py"]
+        REST["REST: /analyze-image /chat /search-youtube /save-log /save-session"]
+        LOGS["exercise_data/ (로그·영상 저장)"]
     end
 
-    YT["YouTube Data API\n튜토리얼 추천/검색"]
+    YT["YouTube Data API (튜토리얼 검색)"]
+    OA["OpenAI API (피드백/채팅 응답)"]
 
     U -->|"웹캠 스트림"| UI
-    UI -->|"프레임 전송"| WS
-    WS --> CV --> WS
-    WS -->|"instant/코치 피드백\nrep 카운트"| UI
-    WS -->|"리포트 요청"| LLM
-    LLM -->|"코칭/리포트 텍스트"| WS
-    UI -->|"운동/검색 키워드"| YT
-    YT -->|"영상 ID/링크"| UI
-    LLM -->|"코칭 문장 텍스트"| UI
+    UI -->|"캡처 이미지 전송"| REST
+    REST --> OA --> REST
+    REST -->|"피드백 JSON"| UI
+    UI -->|"검색 키워드"| REST
+    REST -->|"추천 결과"| UI
+    REST --> LOGS
 ```
 ---------------------------
 
 # 데이터 연동 정의서
 
 ## 1. 데이터 정의
-- 입력: 웹캠 프레임(base64 JPEG), 운동 선택(스쿼트/플랭크), 채팅 메시지  
-- 출력: instant/코칭 피드백 텍스트, rep 카운트, 분석 프레임(base64 JPEG), 세션 리포트, 튜토리얼 영상 링크
+- 입력: 웹캠 프레임(로컬 처리), 최하단 캡처(base64 JPEG), 운동 선택(스쿼트/숄더프레스), 채팅 메시지  
+- 출력: 코칭 피드백 텍스트, rep 카운트, 캡처 이미지, 튜토리얼 영상 링크
 - 외부 키: `OPENAI_API_KEY`, `YOUTUBE_API_KEY` (.env → env.js), 공개 저장소에 포함 금지
-- 로컬 파일: `dataset/xyz_distances.csv`(참고용), `video/`(옵션 녹화물), `env.js`(런타임용)
+- 로컬 파일: `exercise_data/`(로그·영상 저장), `env.js`(런타임용)
 
 ## 2. 연동 방식
-- WebSocket `/ws/feedback`: 프론트→서버 프레임 전송, 서버→프론트 피드백 JSON/분석 프레임 반환
-- HTTP 정적 서빙: `index.html`, `run.jsx`, `run.css`, `env.js`
-- OpenAI API: 채팅/코칭/리포트 생성 (서버에서 호출)
-- YouTube Data API: 추천/검색 (프론트에서 호출, 실패 시 기본 영상 폴백)
+- REST `/analyze-image`: 프론트 캡처 이미지 → 서버 → OpenAI → 피드백 JSON 반환
+- REST `/chat`, `/search-youtube`, `/save-log`, `/save-session`: 채팅·추천·로그/영상 저장 처리
+- HTTP 정적 서빙: `frontend/index.html`, `frontend/src/*`, `frontend/env.js`
+- OpenAI API: 서버에서 피드백/채팅 생성
+- YouTube Data API: 서버에서 추천 검색, 실패 시 프론트에서 기본 영상 폴백
 
---------------------------
+---------------------------
+
+# 실행 방법 (자세한 절차는 HOWTORUN.md 참고)
+1) `.env` 준비  
+```
+OPENAI_API_KEY=...
+YOUTUBE_API_KEY=...
+IMAGE_ANALYZE_ENDPOINT=http://localhost:8003/analyze-image
+```
+2) 프론트 env.js 생성  
+```
+cd frontend
+python generate_env_js.py
+```
+3) 백엔드 실행  
+```
+cd backend
+uvicorn exercise_server:app --host 0.0.0.0 --port 8003
+```
+4) 프론트 실행  
+```
+cd frontend
+python -m http.server 5500
+```
+5) 브라우저 접속: `http://localhost:5500/index.html` (DevTools에서 Disable cache 체크 후 새로고침 권장 OR `Ctrl+Shift+R`)
+
+---------------------------
 
 # 클라우드 아키텍처 설계서
 
 ## 1. 아키텍처 개요
-- 기본 배포는 로컬(HTTP 서버 + FastAPI WS)로 동작하며, 필요 시 다음과 같이 확장 가능:
-  - 프론트: 정적 호스팅(S3/CloudFront 또는 Vercel 등) + env 주입
-  - 백엔드: FastAPI + uvicorn (예: EC2/Cloud Run), WebSocket 지원
+- 기본은 로컬(정적 서버 + FastAPI REST) 데모로 동작하며, 필요 시 아래와 같이 클라우드에 배포 가능:
+  - 프론트: 정적 호스팅(S3/CloudFront, Vercel 등) + env 주입(frontend/env.js)
+  - 백엔드: FastAPI + uvicorn (예: EC2/Cloud Run), REST 엔드포인트(`/analyze-image`, `/chat`, `/search-youtube`, `/save-log`, `/save-session`)
   - 비공개 키: 서버 환경변수로 관리, env.js에는 넣지 않음
 
 ## 2. 설계 이미지
 ```
 [Browser]
-  - index.html + run.jsx (React+WS)
-  - env.js (키 주입)
+  - frontend/index.html + src/* (React + Mediapipe)
+  - frontend/env.js (키/엔드포인트 주입)
         |
         v
-[Backend - FastAPI WS]
-  - /ws/feedback (프레임/피드백)
-  - MediaPipe Pose, OpenAI API 호출
+[Backend - FastAPI REST]
+  - /analyze-image (캡처 → OpenAI → 피드백)
+  - /chat
+  - /search-youtube
+  - /save-log, /save-session (exercise_data/ 저장)
         |
         v
 [External]
@@ -278,9 +339,9 @@ NONE
 # 프로젝트 회고
 
 ## 1. 프로젝트 개요
-- **프로젝트 이름**: [프로젝트 명]
-- **기간**: [YYYY-MM-DD ~ YYYY-MM-DD]
-- **팀 구성원**: [팀원 이름]
+- **프로젝트 이름**: EXERCISE COACH(EC)
+- **기간**: [2025-12-02 ~ 2025-12-12]
+- **팀 구성원**: 김채원(팀장), 손지원, 이주연, 이진배
 
 ---
 
