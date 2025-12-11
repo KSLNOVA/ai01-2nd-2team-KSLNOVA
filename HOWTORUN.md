@@ -22,10 +22,10 @@ pip install -r requirements.txt
 ## 2. api-key 설정
 1) .env에 들어가야할 내용
 ```bash
-OPENAI_API_KEY=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
+OPENAI_API_KEY='your key'
 
 
-YOUTUBE_API_KEY=AIzaSyBbhRmlQG-9fIsF4ft6GK-FN1pkslnDeD4
+YOUTUBE_API_KEY='your key'
 
 
 IMAGE_ANALYZE_ENDPOINT=http://localhost:8003/analyze-image
