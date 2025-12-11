@@ -190,9 +190,9 @@ function App() {
     : '시작 버튼을 누르세요';
 
   const layoutColumns = () => {
-    if (showLeftPanel && showRightPanel) return '280px 1fr 280px';
+    if (showLeftPanel && showRightPanel) return '280px 1fr 380px';
     if (showLeftPanel) return '280px 1fr';
-    if (showRightPanel) return '1fr 280px';
+    if (showRightPanel) return '1fr 380px';
     return '1fr';
   };
 
@@ -1391,7 +1391,7 @@ function App() {
                                   style={{ padding: '4px 8px', fontSize: '12px' }}
                                   onClick={() => openVideoModal(record.videoUrl)}
                                 >
-                                  ▶ 재생
+                                  ▶
                                 </button>
                               ) : (
                                 <span style={{ color: '#666', fontSize: '12px' }}>없음</span>
@@ -1407,7 +1407,7 @@ function App() {
                                     setReportModalOpen(true);
                                   }}
                                 >
-                                  📋 보기
+                                  📋
                                 </button>
                               ) : (
                                 <span style={{ color: '#666', fontSize: '12px' }}>-</span>
