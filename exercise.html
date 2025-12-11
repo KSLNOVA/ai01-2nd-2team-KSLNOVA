@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>🏋️ 운동 자세 AI Agent</title>
+    <script type="module">
+        import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        let video, canvas, ctx, poseLandmarker, drawingUtils;
+        let frameIndex = 1, isRunning = false;
+        let startTime = null;
+        let currentExercise = "squat";
+        let smoothedLandmarks = null;
+
+        // 스무딩 및 임계값 상수
+        const SMOOTHING = 0.7, VIS_TH = 0.7;
+
+        // ===== 스쿼트 상태 =====
+        let cycleState = "STANDING", repCount = 0, minKneeAngle = 180, capturedImage = null;
+        let isProcessingFeedback = false;
+        const STANDING_TH = 160, SQUAT_TH = 110;
+
+        // ===== 플랭크 상태 =====
+        let plankState = "WAITING"; // WAITING, HOLDING
+        let holdStartTime = null, totalHoldTime = 0;
+        let lastPlankCaptureTime = 0;
+        const PLANK_CAPTURE_INTERVAL = 5000; // 5초마다 캡처
+        const PLANK_GOOD_MIN = 160, PLANK_GOOD_MAX = 185; // 좋은 자세 범위
+
+        // ===== 숄더프레스 상태 =====
+        let pressState = "READY"; // READY, PRESSING, TOP
+        let minElbowAngle = 180, maxElbowAngle = 0;
+        const PRESS_READY_TH = 110; // 팔꿈치가 110° 이하면 준비 자세
+        const PRESS_TOP_TH = 155; // 팔꿈치가 155° 이상이면 완료
+
+        // 녹화 및 피드백
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let feedbackHistory = [];
+
+        // 스무딩 함수
+        function smooth(lm) {
+            if (!smoothedLandmarks) { smoothedLandmarks = lm.map(l => ({ ...l })); return smoothedLandmarks; }
+            for (let i = 0; i < lm.length; i++) {
+                smoothedLandmarks[i].x = smoothedLandmarks[i].x * (1 - SMOOTHING) + lm[i].x * SMOOTHING;
+                smoothedLandmarks[i].y = smoothedLandmarks[i].y * (1 - SMOOTHING) + lm[i].y * SMOOTHING;
+                smoothedLandmarks[i].z = smoothedLandmarks[i].z * (1 - SMOOTHING) + lm[i].z * SMOOTHING;
+            }
+            return smoothedLandmarks;
+        }
+
+        // 가시성 체크 (스쿼트용 - 하체)
+        function checkVisibleSquat(lm) {
+            for (const i of [23, 24, 25, 26, 27, 28]) {
+                if (!lm[i] || lm[i].y > 1 || lm[i].y < 0) return false;
+                if (lm[i].visibility !== undefined && lm[i].visibility < VIS_TH) return false;
+            }
+            return true;
+        }
+
+        // 가시성 체크 (플랭크용 - 전신)
+        function checkVisiblePlank(lm) {
+            // 어깨(11,12), 엉덩이(23,24), 발목(27,28)
+            for (const i of [11, 12, 23, 24, 27, 28]) {
+                if (!lm[i] || lm[i].y > 1 || lm[i].y < 0) return false;
+                if (lm[i].visibility !== undefined && lm[i].visibility < VIS_TH) return false;
+            }
+            return true;
+        }
+
+        // 각도 계산
+        function calcAngle(a, b, c) {
+            const AB = [a.x - b.x, a.y - b.y], CB = [c.x - b.x, c.y - b.y];
+            const dot = AB[0] * CB[0] + AB[1] * CB[1];
+            const mag = Math.hypot(...AB) * Math.hypot(...CB);
+            return mag === 0 ? 180 : Math.acos(Math.max(-1, Math.min(1, dot / mag))) * (180 / Math.PI);
+        }
+
+        async function initCamera() {
+            video = document.getElementById("video");
+            canvas = document.getElementById("canvas");
+            ctx = canvas.getContext("2d");
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } });
+            video.srcObject = stream;
+            await video.play();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+
+        async function initPose() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task" },
+                runningMode: "VIDEO", numPoses: 1
+            });
+            drawingUtils = new DrawingUtils(ctx);
+        }
+
+        function speak(text) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ko-KR"; u.rate = 1.1; speechSynthesis.speak(u); }
+
+        async function sendImage(img, count, holdTime = 0) {
+            try {
+                const res = await fetch("http://localhost:8003/analyze-image", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: img, rep_count: count, exercise_type: currentExercise, hold_time: holdTime })
+                });
+                return (await res.json()).feedback;
+            } catch (e) { return null; }
+        }
+
+        // 스쿼트 완료 처리
+        async function onSquatComplete() {
+            if (isProcessingFeedback || !capturedImage) return;
+            isProcessingFeedback = true;
+            repCount++;
+            document.getElementById("repCount").innerText = repCount;
+            document.getElementById("status").innerText = "📸 분석 중...";
+            document.getElementById("capturedImg").src = capturedImage;
+            document.getElementById("capturedImg").style.display = "block";
+            const fb = await sendImage(capturedImage, repCount);
+            if (fb) {
+                document.getElementById("feedback").innerText = fb;
+                speak(fb);
+                document.getElementById("status").innerText = "🔴 " + repCount + "회!";
+                feedbackHistory.push({ rep: repCount, feedback: fb });
+            }
+            capturedImage = null; minKneeAngle = 180; isProcessingFeedback = false;
+        }
+
+        // 플랭크 피드백 처리
+        async function onPlankCapture() {
+            if (isProcessingFeedback) return;
+            isProcessingFeedback = true;
+
+            const capturedImg = canvas.toDataURL("image/jpeg", 0.8);
+            document.getElementById("capturedImg").src = capturedImg;
+            document.getElementById("capturedImg").style.display = "block";
+            document.getElementById("status").innerText = "📸 분석 중...";
+
+            const fb = await sendImage(capturedImg, 0, totalHoldTime);
+            if (fb) {
+                document.getElementById("feedback").innerText = fb;
+                speak(fb);
+                feedbackHistory.push({ time: totalHoldTime, feedback: fb });
+            }
+            document.getElementById("status").innerText = "🔴 유지 중...";
+            isProcessingFeedback = false;
+        }
+
+        // 스켈레톤 그리기
+        function drawSkeleton(lm, indices, connections) {
+            ctx.strokeStyle = "#00d4ff"; ctx.lineWidth = 3;
+            connections.forEach(([a, b]) => {
+                if (lm[a].y >= 0 && lm[a].y <= 1 && lm[b].y >= 0 && lm[b].y <= 1) {
+                    ctx.beginPath(); ctx.moveTo(lm[a].x * canvas.width, lm[a].y * canvas.height);
+                    ctx.lineTo(lm[b].x * canvas.width, lm[b].y * canvas.height); ctx.stroke();
+                }
+            });
+            indices.filter(i => lm[i].y >= 0 && lm[i].y <= 1).forEach(i => {
+                ctx.beginPath(); ctx.arc(lm[i].x * canvas.width, lm[i].y * canvas.height, 5, 0, 2 * Math.PI);
+                ctx.fillStyle = "#00ff88"; ctx.fill();
+            });
+        }
+
+        // ===== 스쿼트 로직 =====
+        function processSquat(lm) {
+            if (!checkVisibleSquat(lm)) {
+                document.getElementById("status").innerText = "⚠️ 전신이 보이도록";
+                return;
+            }
+
+            const idx = [11, 12, 23, 24, 25, 26, 27, 28];
+            const connections = [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28]];
+            drawSkeleton(lm, idx, connections);
+
+            // 무릎 각도 계산
+            const hip = lm[23].z < lm[24].z ? lm[23] : lm[24];
+            const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
+            const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
+            const angle = calcAngle(hip, knee, ankle);
+
+            // 사이클 상태 머신
+            if (cycleState === "STANDING" && angle < STANDING_TH - 10) {
+                cycleState = "SQUATTING"; minKneeAngle = angle;
+                document.getElementById("status").innerText = "⬇️ 하강";
+            }
+            else if (cycleState === "SQUATTING") {
+                if (angle < minKneeAngle) {
+                    minKneeAngle = angle;
+                    if (angle < SQUAT_TH) {
+                        capturedImage = canvas.toDataURL("image/jpeg", 0.8);
+                        document.getElementById("status").innerText = "📸 캡처!";
+                    }
+                }
+                if (angle > minKneeAngle + 20 && minKneeAngle < SQUAT_TH) {
+                    cycleState = "RISING";
+                    document.getElementById("status").innerText = "⬆️ 상승";
+                }
+                if (angle > STANDING_TH) {
+                    cycleState = "STANDING"; minKneeAngle = 180; capturedImage = null;
+                    document.getElementById("status").innerText = "❌ 더 깊이";
+                }
+            }
+            else if (cycleState === "RISING" && angle > STANDING_TH) {
+                cycleState = "STANDING";
+                onSquatComplete();
+            }
+        }
+
+        // ===== 플랭크 로직 =====
+        function processPlank(lm) {
+            if (!checkVisiblePlank(lm)) {
+                document.getElementById("status").innerText = "⚠️ 전신이 보이도록 (옆모습 권장)";
+                // 플랭크 자세 이탈 시 상태 리셋
+                if (plankState === "HOLDING") {
+                    plankState = "WAITING";
+                    holdStartTime = null;
+                }
+                return;
+            }
+
+            // 플랭크용 스켈레톤 (상체 포함)
+            const idx = [11, 12, 13, 14, 23, 24, 25, 26, 27, 28];
+            const connections = [[11, 12], [11, 13], [12, 14], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28]];
+            drawSkeleton(lm, idx, connections);
+
+            // 어깨-엉덩이-발목 각도 (몸 정렬)
+            // 가까운 쪽 사용 (z 좌표 비교)
+            const shoulder = lm[11].z < lm[12].z ? lm[11] : lm[12];
+            const hip = lm[23].z < lm[24].z ? lm[23] : lm[24];
+            const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
+            const bodyAngle = calcAngle(shoulder, hip, ankle);
+
+            // 각도 표시
+            ctx.fillStyle = "#ffcc00";
+            ctx.font = "16px Arial";
+            ctx.fillText(`Body: ${bodyAngle.toFixed(1)}°`, 10, 30);
+
+            // 자세 피드백
+            let postureFeedback = "";
+            let isGoodPosture = false;
+
+            if (bodyAngle < PLANK_GOOD_MIN) {
+                postureFeedback = "⬆️ 엉덩이를 올려주세요";
+            } else if (bodyAngle > PLANK_GOOD_MAX) {
+                postureFeedback = "⬇️ 엉덩이를 내려주세요";
+            } else {
+                postureFeedback = "✅ 좋은 자세입니다!";
+                isGoodPosture = true;
+            }
+
+            document.getElementById("feedback").innerText = postureFeedback;
+
+            // 플랭크 상태 머신
+            if (plankState === "WAITING") {
+                if (isGoodPosture) {
+                    plankState = "HOLDING";
+                    holdStartTime = Date.now();
+                    document.getElementById("status").innerText = "🔴 플랭크 유지 시작!";
+                    speak("플랭크 시작!");
+                } else {
+                    document.getElementById("status").innerText = "⏳ 플랭크 자세를 잡아주세요";
+                }
+            } else if (plankState === "HOLDING") {
+                // 유지 시간 계산 및 표시
+                totalHoldTime = Math.floor((Date.now() - holdStartTime) / 1000);
+                document.getElementById("repCount").innerText = totalHoldTime + "초";
+                document.getElementById("status").innerText = "🔴 유지 중... " + postureFeedback;
+
+                // 5초마다 AI 분석
+                const now = Date.now();
+                if (now - lastPlankCaptureTime > PLANK_CAPTURE_INTERVAL) {
+                    lastPlankCaptureTime = now;
+                    onPlankCapture();
+                }
+
+                // 자세 이탈 시
+                if (!isGoodPosture) {
+                    // 3초 정도 유예 시간 없이 바로 피드백 (음성은 이미 주고 있음)
+                    // 심각한 이탈 시에만 리셋 (각도가 너무 많이 벗어남)
+                    if (bodyAngle < PLANK_GOOD_MIN - 20 || bodyAngle > PLANK_GOOD_MAX + 20) {
+                        speak("자세를 바로 잡아주세요");
+                    }
+                }
+            }
+        }
+
+        // ===== 숄더프레스 로직 =====
+        function checkVisiblePress(lm) {
+            // 어깨(11,12), 팔꿈치(13,14), 손목(15,16)
+            for (const i of [11, 12, 13, 14, 15, 16]) {
+                if (!lm[i] || lm[i].y > 1 || lm[i].y < 0) return false;
+                if (lm[i].visibility !== undefined && lm[i].visibility < VIS_TH) return false;
+            }
+            return true;
+        }
+
+        async function onPressComplete() {
+            if (isProcessingFeedback || !capturedImage) return;
+            isProcessingFeedback = true;
+            repCount++;
+            document.getElementById("repCount").innerText = repCount;
+            document.getElementById("status").innerText = "📸 분석 중...";
+            document.getElementById("capturedImg").src = capturedImage;
+            document.getElementById("capturedImg").style.display = "block";
+            const fb = await sendImage(capturedImage, repCount);
+            if (fb) {
+                document.getElementById("feedback").innerText = fb;
+                speak(fb);
+                document.getElementById("status").innerText = "🔴 " + repCount + "회!";
+                feedbackHistory.push({ rep: repCount, feedback: fb });
+            }
+            capturedImage = null; maxElbowAngle = 0; isProcessingFeedback = false;
+        }
+
+        function processShoulderPress(lm) {
+            if (!checkVisiblePress(lm)) {
+                document.getElementById("status").innerText = "⚠️ 상체가 보이도록";
+                return;
+            }
+
+            // 상체 스켈레톤
+            const idx = [11, 12, 13, 14, 15, 16];
+            const connections = [[11, 12], [11, 13], [12, 14], [13, 15], [14, 16]];
+            drawSkeleton(lm, idx, connections);
+
+            // 팔꿈치 각도 계산 (양쪽 평균)
+            const leftElbowAngle = calcAngle(lm[11], lm[13], lm[15]);
+            const rightElbowAngle = calcAngle(lm[12], lm[14], lm[16]);
+            const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+
+            // 각도 표시
+            ctx.fillStyle = "#ffcc00";
+            ctx.font = "16px Arial";
+            ctx.fillText(`Elbow: ${avgElbowAngle.toFixed(1)}°`, 10, 30);
+
+            // 손목이 어깨보다 위에 있는지 확인 (프레스 완료 판단용)
+            const wristAboveShoulder = (lm[15].y < lm[11].y) || (lm[16].y < lm[12].y);
+
+            // 사이클 상태 머신
+            if (pressState === "READY") {
+                if (avgElbowAngle < PRESS_READY_TH) {
+                    document.getElementById("status").innerText = "⏳ 준비 자세 (팔꿈치 굽힘)";
+                    document.getElementById("feedback").innerText = "팔꿈치를 펴면서 위로 밀어주세요";
+                }
+                if (avgElbowAngle > PRESS_READY_TH + 10) {
+                    pressState = "PRESSING";
+                    maxElbowAngle = avgElbowAngle;
+                    document.getElementById("status").innerText = "⬆️ 프레스 중...";
+                }
+            }
+            else if (pressState === "PRESSING") {
+                if (avgElbowAngle > maxElbowAngle) {
+                    maxElbowAngle = avgElbowAngle;
+                }
+                if (avgElbowAngle > PRESS_TOP_TH && wristAboveShoulder) {
+                    pressState = "TOP";
+                    capturedImage = canvas.toDataURL("image/jpeg", 0.8);
+                    document.getElementById("status").innerText = "📸 캡처!";
+                    document.getElementById("feedback").innerText = "✅ 좋아요! 천천히 내려주세요";
+                }
+                // 충분히 올리지 않고 내린 경우
+                if (avgElbowAngle < maxElbowAngle - 20 && maxElbowAngle < PRESS_TOP_TH) {
+                    pressState = "READY";
+                    maxElbowAngle = 0;
+                    document.getElementById("status").innerText = "❌ 더 높이 올려주세요";
+                }
+            }
+            else if (pressState === "TOP") {
+                // 팔을 내리기 시작
+                if (avgElbowAngle < PRESS_TOP_TH - 20) {
+                    pressState = "LOWERING";
+                    document.getElementById("status").innerText = "⬇️ 하강 중...";
+                }
+            }
+            else if (pressState === "LOWERING") {
+                if (avgElbowAngle < PRESS_READY_TH) {
+                    pressState = "READY";
+                    onPressComplete();
+                }
+            }
+        }
+
+        // 메인 예측 루프
+        function predict() {
+            if (!poseLandmarker || !isRunning) return;
+            const results = poseLandmarker.detectForVideo(video, frameIndex++);
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            if (results.landmarks && results.landmarks[0]) {
+                // 랜드마크 좌우 반전 (미러링)
+                const raw = results.landmarks[0].map(l => ({ ...l, x: 1 - l.x }));
+                const lm = smooth(raw);
+
+                // 운동 타입에 따라 분기
+                if (currentExercise === "squat") {
+                    processSquat(lm);
+                } else if (currentExercise === "plank") {
+                    processPlank(lm);
+                } else if (currentExercise === "shoulder_press") {
+                    processShoulderPress(lm);
+                }
+            }
+            requestAnimationFrame(predict);
+        }
+
+        // 운동 시작
+        window.startExercise = async function () {
+            if (isRunning) return;
+            document.getElementById("status").innerText = "📷 로딩...";
+            await initCamera();
+            await initPose();
+
+            // 상태 초기화
+            recordedChunks = [];
+            feedbackHistory = [];
+            repCount = 0;
+            cycleState = "STANDING";
+            minKneeAngle = 180;
+            capturedImage = null;
+            plankState = "WAITING";
+            holdStartTime = null;
+            totalHoldTime = 0;
+            lastPlankCaptureTime = 0;
+            pressState = "READY";
+            maxElbowAngle = 0;
+            smoothedLandmarks = null;
+
+            // 녹화 시작
+            const stream = video.srcObject;
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            mediaRecorder.start();
+
+            isRunning = true; startTime = new Date();
+            document.getElementById("repCount").innerText = currentExercise === "plank" ? "0초" : "0";
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            document.getElementById("status").innerText = "🔴 녹화 중...";
+            predict();
+        };
+
+        // 운동 종료
+        window.stopExercise = async function () {
+            isRunning = false;
+            const duration = Math.round((new Date() - startTime) / 1000);
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+            document.getElementById("status").innerText = "💾 저장 중...";
+
+            // 녹화 중지
+            mediaRecorder.stop();
+            await new Promise(resolve => mediaRecorder.onstop = resolve);
+
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+
+            reader.onloadend = async () => {
+                const videoBase64 = reader.result;
+
+                // 세션 저장
+                const sessionData = {
+                    exercise: currentExercise,
+                    reps: currentExercise === "squat" ? repCount : 0,
+                    hold_time: currentExercise === "plank" ? totalHoldTime : 0,
+                    duration: duration,
+                    date: new Date().toLocaleString(),
+                    feedbacks: feedbackHistory,
+                    video: videoBase64
+                };
+
+                const res = await fetch("http://localhost:8003/save-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(sessionData)
+                });
+                const result = await res.json();
+
+                document.getElementById("status").innerText = "✅ 저장 완료!";
+                addLogToUI(sessionData);
+                console.log("저장 경로:", result.saved_path);
+            };
+        };
+
+        function addLogToUI(log) {
+            const div = document.createElement("div");
+            div.className = "log-item";
+            if (log.exercise === "plank") {
+                div.innerHTML = `<b>${log.exercise}</b>: ${log.hold_time}초 유지 (${log.duration}초) - ${log.date}`;
+            } else {
+                div.innerHTML = `<b>${log.exercise}</b>: ${log.reps}회 (${log.duration}초) - ${log.date}`;
+            }
+            document.getElementById("logList").prepend(div);
+        }
+
+        // 유튜브 검색 및 로드 (기본 영상 fallback 포함)
+        const DEFAULT_VIDEOS = {
+            squat: { videoId: "aclHkVaku9U", title: "스쿼트 자세 가이드" },
+            plank: { videoId: "pSHjTRCQxIw", title: "플랭크 자세 가이드" },
+            shoulder_press: { videoId: "qEwKCR5JCog", title: "숄더프레스 자세 가이드" }
+        };
+
+        async function loadYouTubeVideo(exercise) {
+            // 먼저 기본 영상 설정 (API 실패 대비)
+            const defaultVideo = DEFAULT_VIDEOS[exercise] || DEFAULT_VIDEOS.squat;
+            document.getElementById("youtubeFrame").src = `https://www.youtube.com/embed/${defaultVideo.videoId}`;
+            document.getElementById("videoTitle").innerText = defaultVideo.title;
+
+            // API로 더 나은 영상 검색 시도
+            try {
+                const res = await fetch(`http://localhost:8003/search-youtube?exercise=${exercise}`);
+                const data = await res.json();
+                if (data.videos && data.videos.length > 0) {
+                    const video = data.videos[0];
+                    document.getElementById("youtubeFrame").src = `https://www.youtube.com/embed/${video.videoId}`;
+                    document.getElementById("videoTitle").innerText = video.title;
+                }
+            } catch (e) {
+                console.log("YouTube API 사용 불가, 기본 영상 사용");
+            }
+        }
+
+        // 운동 선택
+        window.selectExercise = async function (type) {
+            // 운동 중에는 변경 불가
+            if (isRunning) {
+                alert("운동 중에는 카테고리를 변경할 수 없습니다. 먼저 운동을 종료하세요.");
+                return;
+            }
+
+            currentExercise = type;
+            document.querySelectorAll(".exercise-btn").forEach(b => b.classList.remove("active"));
+            document.querySelector(`[data-type="${type}"]`).classList.add("active");
+
+            // UI 업데이트
+            if (type === "plank") {
+                document.getElementById("repLabel").innerText = "유지시간";
+                document.getElementById("repCount").innerText = "0초";
+                document.getElementById("feedback").innerText = "플랭크 자세를 잡으면 AI가 분석합니다.";
+            } else if (type === "shoulder_press") {
+                document.getElementById("repLabel").innerText = "횟수";
+                document.getElementById("repCount").innerText = "0";
+                document.getElementById("feedback").innerText = "숄더프레스를 시작하면 AI가 자세를 분석합니다.";
+            } else {
+                document.getElementById("repLabel").innerText = "횟수";
+                document.getElementById("repCount").innerText = "0";
+                document.getElementById("feedback").innerText = "스쿼트를 시작하면 AI가 자세를 분석합니다.";
+            }
+
+            await loadYouTubeVideo(type);
+        };
+
+        // LLM 채팅
+        window.sendChat = async function () {
+            const input = document.getElementById("chatInput");
+            const msg = input.value.trim();
+            if (!msg) return;
+            input.value = "";
+            const chatBox = document.getElementById("chatBox");
+            chatBox.innerHTML += `<div class="chat-user">🧑 ${msg}</div>`;
+            try {
+                const res = await fetch("http://localhost:8003/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: msg }) });
+                const data = await res.json();
+                chatBox.innerHTML += `<div class="chat-ai">🤖 ${data.response}</div>`;
+            } catch (e) { chatBox.innerHTML += `<div class="chat-ai">🤖 오류 발생</div>`; }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        };
+
+        window.onload = async function () {
+            try {
+                const res = await fetch("http://localhost:8003/get-logs");
+                const data = await res.json();
+                data.logs.reverse().forEach(addLogToUI);
+            } catch (e) { console.log("로그 로딩 실패"); }
+            await loadYouTubeVideo("squat");
+        };
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            color: #00d4ff;
+            font-size: 24px;
+        }
+
+        .main {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 15px;
+            padding: 15px;
+            height: calc(100vh - 70px);
+        }
+
+        .sidebar-left {
+            grid-row: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar-left-bottom {
+            grid-row: 2;
+            grid-column: 1;
+        }
+
+        .center-content {
+            grid-row: 1 / 3;
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .video-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .video-row .video-box {
+            flex: 1;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card h3 {
+            color: #00d4ff;
+            font-size: 14px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+        }
+
+        .exercise-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .exercise-btn:hover,
+        .exercise-btn.active {
+            background: #00d4ff;
+            color: #000;
+        }
+
+        #chatBox {
+            height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+
+        .chat-user {
+            color: #00ff88;
+            margin-bottom: 5px;
+        }
+
+        .chat-ai {
+            color: #ffcc00;
+            margin-bottom: 5px;
+        }
+
+        #chatInput {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .video-box {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .video-box canvas,
+        .video-box iframe {
+            width: 100%;
+            height: 480px;
+            display: block;
+        }
+
+        .video-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .controls button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #startBtn {
+            background: #00ff88;
+            color: #000;
+        }
+
+        #stopBtn {
+            background: #ff6b6b;
+            color: #fff;
+        }
+
+        #startBtn:disabled,
+        #stopBtn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .feedback-box {
+            display: grid;
+            grid-template-columns: 120px 1fr auto;
+            gap: 15px;
+            align-items: center;
+        }
+
+        #capturedImg {
+            width: 120px;
+            height: 90px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #ff6b35;
+            display: none;
+        }
+
+        #feedback {
+            font-size: 18px;
+            color: #ffcc00;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        #status {
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .log-item {
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        #logList {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🏋️ 운동 자세 AI Agent</h1>
+    </div>
+    <div class="main">
+        <!-- 좌측: 운동 카테고리 + 채팅 -->
+        <div class="sidebar-left">
+            <div class="card">
+                <h3>📋 운동 카테고리</h3>
+                <button class="exercise-btn active" data-type="squat" onclick="selectExercise('squat')">🏋️ 스쿼트</button>
+                <button class="exercise-btn" data-type="plank" onclick="selectExercise('plank')">🧘 플랭크</button>
+                <button class="exercise-btn" data-type="shoulder_press" onclick="selectExercise('shoulder_press')">💪
+                    숄더프레스</button>
+            </div>
+            <div class="card" style="flex:1;">
+                <h3>💬 AI 트레이너 채팅</h3>
+                <div id="chatBox"></div>
+                <input type="text" id="chatInput" placeholder="질문을 입력하세요..."
+                    onkeypress="if(event.key==='Enter')sendChat()">
+            </div>
+        </div>
+        <!-- 좌측 하단: 운동 기록 -->
+        <div class="sidebar-left-bottom">
+            <div class="card" style="height:100%;">
+                <h3>📊 운동 기록</h3>
+                <div id="logList"></div>
+            </div>
+        </div>
+        <!-- 중앙: 유튜브 + 웹캠 + 피드백 -->
+        <div class="center-content">
+            <div class="video-row">
+                <div class="video-box">
+                    <span class="video-label">📺 <span id="videoTitle">가이드 영상</span></span>
+                    <iframe id="youtubeFrame" src="" frameborder="0" allowfullscreen></iframe>
+                </div>
+                <div class="video-box">
+                    <span class="video-label">📷 내 웹캠</span>
+                    <video id="video" playsinline style="display:none;"></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <div class="feedback-box">
+                    <img id="capturedImg" src="">
+                    <div>
+                        <div id="feedback">스쿼트를 시작하면 AI가 자세를 분석합니다.</div>
+                        <div id="status" style="margin-top:5px;">대기 중...</div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-value" id="repCount">0</div>
+                            <div class="stat-label" id="repLabel">횟수</div>
+                        </div>
+
+                    </div>
+                </div>
+                <div class="controls">
+                    <button id="startBtn" onclick="startExercise()">▶️ 운동 시작</button>
+                    <button id="stopBtn" onclick="stopExercise()" disabled>⏹️ 운동 종료</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
