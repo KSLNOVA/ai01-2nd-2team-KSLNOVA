@@ -19,19 +19,31 @@
 pip install requirements.txt
 ```
 
-## 2. api-key 설정
+## 2. api-key 설정(frontend bash 창에서 실행)
+1) .env에 밑에 한줄 추가
+```
+IMAGE_ANALYZE_ENDPOINT=http://localhost:8003/analyze-image
+```
+
 - .env를 준비
 ```bash
 python generate_env_js.py
 ```
 - env.js 생성되면 성공
 
+2) 만약 env.js가 잘 생성 안된다면 env.js에 다음 한줄 추가
+window.ENV = {
+  IMAGE_ANALYZE_ENDPOINT: "http://localhost:8003/analyze-image",
+}
+
+
 
 ## 3. 백엔드 실행(서버 띄워놓은채)
 ```bash
 cd backend
 export OPENAI_API_KEY="your_actual_key"
-uvicorn image_server:app --host 0.0.0.0 --port 8002
+export YOUTUBE_API_KEY="your_actual_key"
+uvicorn final_server:app --host 0.0.0.0 --port 8002
 ```
 
 ## 4. 프론트 실행(백엔드 서버 띄워놓은채 **Ctrl+Shift+`**) -> 새 터미널 창 생김
@@ -41,7 +53,7 @@ python -m http.server 5500
 ```
 
 ## 5. 브라우저 접속
-- 주소: `http://localhost:5500/index.html?v=img10` (캐시 무력화용 쿼리)
+- 주소: `http://localhost:5500/index.html`
 - 개발자도구 Network에서 “Disable cache” 체크 후 **Ctrl+Shift+R**
 - 카메라 권한 허용, 오른쪽 패널 열기
 

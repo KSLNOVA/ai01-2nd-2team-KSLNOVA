@@ -6,7 +6,6 @@ numpy>=1.26.4,<2.0.0
 openai>=1.40.0
 python-dotenv>=1.0.1
 requests>=2.31.0
-
-# pip install -r requirements.txt
+httpx>=0.27.0,<1.0.0  # YouTube 검색용 비동기 클라이언트
 
 # pip install -r requirements.txt
