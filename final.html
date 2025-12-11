@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>🏋️ 운동 자세 AI Agent</title>
+    <script type="module">
+        import { PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        let video, canvas, ctx, poseLandmarker, drawingUtils;
+        let frameIndex = 1, isRunning = false;
+        let cycleState = "STANDING", repCount = 0, minKneeAngle = 180, capturedImage = null;
+        let isProcessingFeedback = false, startTime = null;
+        let currentExercise = "squat";
+        let smoothedLandmarks = null;
+        const SMOOTHING = 0.7, STANDING_TH = 160, SQUAT_TH = 110, VIS_TH = 0.7;
+
+        // 스무딩
+        function smooth(lm) {
+            if (!smoothedLandmarks) { smoothedLandmarks = lm.map(l => ({ ...l })); return smoothedLandmarks; }
+            for (let i = 0; i < lm.length; i++) {
+                smoothedLandmarks[i].x = smoothedLandmarks[i].x * (1 - SMOOTHING) + lm[i].x * SMOOTHING;
+                smoothedLandmarks[i].y = smoothedLandmarks[i].y * (1 - SMOOTHING) + lm[i].y * SMOOTHING;
+                smoothedLandmarks[i].z = smoothedLandmarks[i].z * (1 - SMOOTHING) + lm[i].z * SMOOTHING;
+            }
+            return smoothedLandmarks;
+        }
+
+        function checkVisible(lm) {
+            for (const i of [23, 24, 25, 26, 27, 28]) {
+                if (!lm[i] || lm[i].y > 1 || lm[i].y < 0) return false;
+                if (lm[i].visibility !== undefined && lm[i].visibility < VIS_TH) return false;
+            }
+            return true;
+        }
+
+        function calcAngle(a, b, c) {
+            const AB = [a.x - b.x, a.y - b.y], CB = [c.x - b.x, c.y - b.y];
+            const dot = AB[0] * CB[0] + AB[1] * CB[1];
+            const mag = Math.hypot(...AB) * Math.hypot(...CB);
+            return mag === 0 ? 180 : Math.acos(Math.max(-1, Math.min(1, dot / mag))) * (180 / Math.PI);
+        }
+
+        async function initCamera() {
+            video = document.getElementById("video");
+            canvas = document.getElementById("canvas");
+            ctx = canvas.getContext("2d");
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } });
+            video.srcObject = stream;
+            await video.play();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+
+        async function initPose() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task" },
+                runningMode: "VIDEO", numPoses: 1
+            });
+            drawingUtils = new DrawingUtils(ctx);
+        }
+
+        function speak(text) { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "ko-KR"; u.rate = 1.1; speechSynthesis.speak(u); }
+
+        async function sendImage(img, count) {
+            try {
+                const res = await fetch("http://localhost:8003/analyze-image", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: img, rep_count: count, exercise_type: currentExercise })
+                });
+                return (await res.json()).feedback;
+            } catch (e) { return null; }
+        }
+
+        async function onComplete() {
+            if (isProcessingFeedback || !capturedImage) return;
+            isProcessingFeedback = true;
+            repCount++;
+            document.getElementById("repCount").innerText = repCount;
+            document.getElementById("status").innerText = "📸 분석 중...";
+            document.getElementById("capturedImg").src = capturedImage;
+            document.getElementById("capturedImg").style.display = "block";
+            const fb = await sendImage(capturedImage, repCount);
+            if (fb) {
+                document.getElementById("feedback").innerText = fb;
+                speak(fb);
+                document.getElementById("status").innerText = "🔴 " + repCount + "회!";
+                feedbackHistory.push({ rep: repCount, feedback: fb });  // 피드백 저장
+            }
+            capturedImage = null; minKneeAngle = 180; isProcessingFeedback = false;
+        }
+
+        function predict() {
+            if (!poseLandmarker || !isRunning) return;
+            const results = poseLandmarker.detectForVideo(video, frameIndex++);
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+            if (results.landmarks && results.landmarks[0]) {
+                // 랜드마크 좌우 반전 (미러링)
+                const raw = results.landmarks[0].map(l => ({ ...l, x: 1 - l.x }));
+
+                if (!checkVisible(raw)) { document.getElementById("status").innerText = "⚠️ 전신이 보이도록"; requestAnimationFrame(predict); return; }
+                const lm = smooth(raw);
+                // 스켈레톤
+                const idx = [11, 12, 23, 24, 25, 26, 27, 28];
+                ctx.strokeStyle = "#00d4ff"; ctx.lineWidth = 3;
+                [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28]].forEach(([a, b]) => {
+                    if (lm[a].y >= 0 && lm[a].y <= 1 && lm[b].y >= 0 && lm[b].y <= 1) {
+                        ctx.beginPath(); ctx.moveTo(lm[a].x * canvas.width, lm[a].y * canvas.height);
+                        ctx.lineTo(lm[b].x * canvas.width, lm[b].y * canvas.height); ctx.stroke();
+                    }
+                });
+                idx.filter(i => lm[i].y >= 0 && lm[i].y <= 1).forEach(i => {
+                    ctx.beginPath(); ctx.arc(lm[i].x * canvas.width, lm[i].y * canvas.height, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = "#00ff88"; ctx.fill();
+                });
+                // 각도
+                const hip = lm[23].z < lm[24].z ? lm[23] : lm[24];
+                const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
+                const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
+                const angle = calcAngle(hip, knee, ankle);
+
+                // 사이클
+                if (cycleState === "STANDING" && angle < STANDING_TH - 10) { cycleState = "SQUATTING"; minKneeAngle = angle; document.getElementById("status").innerText = "⬇️ 하강"; }
+                else if (cycleState === "SQUATTING") {
+                    if (angle < minKneeAngle) { minKneeAngle = angle; if (angle < SQUAT_TH) { capturedImage = canvas.toDataURL("image/jpeg", 0.8); document.getElementById("status").innerText = "📸 캡처!"; } }
+                    if (angle > minKneeAngle + 20 && minKneeAngle < SQUAT_TH) { cycleState = "RISING"; document.getElementById("status").innerText = "⬆️ 상승"; }
+                    if (angle > STANDING_TH) { cycleState = "STANDING"; minKneeAngle = 180; capturedImage = null; document.getElementById("status").innerText = "❌ 더 깊이"; }
+                }
+                else if (cycleState === "RISING" && angle > STANDING_TH) { cycleState = "STANDING"; onComplete(); }
+            }
+            requestAnimationFrame(predict);
+        }
+
+        // 운동 시작/종료
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let feedbackHistory = [];
+
+        window.startExercise = async function () {
+            if (isRunning) return;
+            document.getElementById("status").innerText = "📷 로딩...";
+            await initCamera();
+            await initPose();
+
+            // 영상 녹화 시작
+            recordedChunks = [];
+            feedbackHistory = [];
+            const stream = video.srcObject;
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            mediaRecorder.start();
+
+            isRunning = true; startTime = new Date(); repCount = 0; cycleState = "STANDING";
+            document.getElementById("repCount").innerText = "0";
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            document.getElementById("status").innerText = "🔴 녹화 중...";
+            predict();
+        };
+
+        window.stopExercise = async function () {
+            isRunning = false;
+            const duration = Math.round((new Date() - startTime) / 1000);
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+            document.getElementById("status").innerText = "💾 저장 중...";
+
+            // 녹화 중지 및 영상 데이터 변환
+            mediaRecorder.stop();
+            await new Promise(resolve => mediaRecorder.onstop = resolve);
+
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+
+            reader.onloadend = async () => {
+                const videoBase64 = reader.result;
+
+                // 세션 저장 (로그 + 영상)
+                const sessionData = {
+                    exercise: currentExercise,
+                    reps: repCount,
+                    duration: duration,
+                    date: new Date().toLocaleString(),
+                    feedbacks: feedbackHistory,
+                    video: videoBase64
+                };
+
+                const res = await fetch("http://localhost:8003/save-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(sessionData)
+                });
+                const result = await res.json();
+
+                document.getElementById("status").innerText = "✅ 저장 완료!";
+                addLogToUI(sessionData);
+                console.log("저장 경로:", result.saved_path);
+            };
+        };
+
+        function addLogToUI(log) {
+            const div = document.createElement("div");
+            div.className = "log-item";
+            div.innerHTML = `<b>${log.exercise}</b>: ${log.reps}회 (${log.duration}초) - ${log.date}`;
+            document.getElementById("logList").prepend(div);
+        }
+
+        // 유튜브 검색 및 로드
+        async function loadYouTubeVideo(exercise) {
+            try {
+                const res = await fetch(`http://localhost:8003/search-youtube?exercise=${exercise}`);
+                const data = await res.json();
+                if (data.videos && data.videos.length > 0) {
+                    const video = data.videos[0];  // 첫 번째 영상 사용
+                    document.getElementById("youtubeFrame").src = `https://www.youtube.com/embed/${video.videoId}`;
+                    document.getElementById("videoTitle").innerText = video.title;
+                }
+            } catch (e) { console.error("YouTube 검색 오류", e); }
+        }
+
+        // 운동 선택
+        window.selectExercise = async function (type) {
+            currentExercise = type;
+            document.querySelectorAll(".exercise-btn").forEach(b => b.classList.remove("active"));
+            document.querySelector(`[data-type="${type}"]`).classList.add("active");
+            await loadYouTubeVideo(type);  // 유튜브 영상 로드
+        };
+
+        // LLM 채팅
+        window.sendChat = async function () {
+            const input = document.getElementById("chatInput");
+            const msg = input.value.trim();
+            if (!msg) return;
+            input.value = "";
+            const chatBox = document.getElementById("chatBox");
+            chatBox.innerHTML += `<div class="chat-user">🧑 ${msg}</div>`;
+            try {
+                const res = await fetch("http://localhost:8003/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: msg }) });
+                const data = await res.json();
+                chatBox.innerHTML += `<div class="chat-ai">🤖 ${data.response}</div>`;
+            } catch (e) { chatBox.innerHTML += `<div class="chat-ai">🤖 오류 발생</div>`; }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        };
+
+        window.onload = async function () {
+            const res = await fetch("http://localhost:8003/get-logs");
+            const data = await res.json();
+            data.logs.reverse().forEach(addLogToUI);
+            // 초기 유튜브 영상 로드
+            await loadYouTubeVideo("squat");
+        };
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            color: #00d4ff;
+            font-size: 24px;
+        }
+
+        .main {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 15px;
+            padding: 15px;
+            height: calc(100vh - 70px);
+        }
+
+        .sidebar-left {
+            grid-row: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar-left-bottom {
+            grid-row: 2;
+            grid-column: 1;
+        }
+
+        .center-content {
+            grid-row: 1 / 3;
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .video-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .video-row .video-box {
+            flex: 1;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card h3 {
+            color: #00d4ff;
+            font-size: 14px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+        }
+
+        .exercise-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .exercise-btn:hover,
+        .exercise-btn.active {
+            background: #00d4ff;
+            color: #000;
+        }
+
+        #chatBox {
+            height: 150px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+
+        .chat-user {
+            color: #00ff88;
+            margin-bottom: 5px;
+        }
+
+        .chat-ai {
+            color: #ffcc00;
+            margin-bottom: 5px;
+        }
+
+        #chatInput {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .video-box {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .video-box canvas,
+        .video-box iframe {
+            width: 100%;
+            height: 480px;
+            display: block;
+        }
+
+        .video-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .controls button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #startBtn {
+            background: #00ff88;
+            color: #000;
+        }
+
+        #stopBtn {
+            background: #ff6b6b;
+            color: #fff;
+        }
+
+        #startBtn:disabled,
+        #stopBtn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .feedback-box {
+            display: grid;
+            grid-template-columns: 120px 1fr auto;
+            gap: 15px;
+            align-items: center;
+        }
+
+        #capturedImg {
+            width: 120px;
+            height: 90px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #ff6b35;
+            display: none;
+        }
+
+        #feedback {
+            font-size: 18px;
+            color: #ffcc00;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        #status {
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .log-item {
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        #logList {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🏋️ 운동 자세 AI Agent</h1>
+    </div>
+    <div class="main">
+        <!-- 좌측: 운동 카테고리 + 채팅 -->
+        <div class="sidebar-left">
+            <div class="card">
+                <h3>📋 운동 카테고리</h3>
+                <button class="exercise-btn active" data-type="squat" onclick="selectExercise('squat')">🏋️ 스쿼트</button>
+                <button class="exercise-btn" data-type="plank" onclick="selectExercise('plank')">🧘 플랭크</button>
+            </div>
+            <div class="card" style="flex:1;">
+                <h3>💬 AI 트레이너 채팅</h3>
+                <div id="chatBox"></div>
+                <input type="text" id="chatInput" placeholder="질문을 입력하세요..."
+                    onkeypress="if(event.key==='Enter')sendChat()">
+            </div>
+        </div>
+        <!-- 좌측 하단: 운동 기록 -->
+        <div class="sidebar-left-bottom">
+            <div class="card" style="height:100%;">
+                <h3>📊 운동 기록</h3>
+                <div id="logList"></div>
+            </div>
+        </div>
+        <!-- 중앙: 유튜브 + 웹캠 + 피드백 -->
+        <div class="center-content">
+            <div class="video-row">
+                <div class="video-box">
+                    <span class="video-label">📺 <span id="videoTitle">가이드 영상</span></span>
+                    <iframe id="youtubeFrame" src="" frameborder="0" allowfullscreen></iframe>
+                </div>
+                <div class="video-box">
+                    <span class="video-label">📷 내 웹캠</span>
+                    <video id="video" playsinline style="display:none;"></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <div class="feedback-box">
+                    <img id="capturedImg" src="">
+                    <div>
+                        <div id="feedback">스쿼트를 시작하면 AI가 자세를 분석합니다.</div>
+                        <div id="status" style="margin-top:5px;">대기 중...</div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-value" id="repCount">0</div>
+                            <div class="stat-label">횟수</div>
+                        </div>
+
+                    </div>
+                </div>
+                <div class="controls">
+                    <button id="startBtn" onclick="startExercise()">▶️ 운동 시작</button>
+                    <button id="stopBtn" onclick="stopExercise()" disabled>⏹️ 운동 종료</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

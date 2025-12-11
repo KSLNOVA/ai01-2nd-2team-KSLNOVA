@@ -1,0 +1,15 @@
+# 환경 변수 파일
+.env
+
+# 파이썬 캐시/빌드 파일
+__pycache__/
+*.pyc
+
+# 가상환경 폴더
+.venv/
+venv/
+env/
+
+# VSCode 설정
+.vscode/
+env.js
