@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from openai import OpenAI
 import json
 from dotenv import load_dotenv
@@ -13,6 +15,9 @@ import db  # DB 모듈 임포트
 load_dotenv()
 
 app = FastAPI()
+
+# 프론트엔드 정적 파일 경로
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 # 서버 시작 시 DB 테이블 준비 (없으면 생성)
 @app.on_event("startup")
@@ -262,4 +267,20 @@ async def search_youtube(exercise: str = "squat"):
         return {"videos": [], "error": str(e)}
 
 
+# ======== 프론트엔드 정적 파일 서빙 ========
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    """루트 경로에서 index.html 제공"""
+    index_path = FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return index_path.read_text(encoding="utf-8")
+    return HTMLResponse("<h1>Frontend not found</h1>", status_code=404)
+
+
+# 정적 파일 마운트 (src, styles, env.js 등)
+app.mount("/src", StaticFiles(directory=str(FRONTEND_DIR / "src")), name="src")
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+
 # uvicorn exercise_server:app --host 0.0.0.0 --port 8003
+# 브라우저에서 http://localhost:8003 접속
