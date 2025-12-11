@@ -102,7 +102,7 @@ async def chat(request: Request):
                 },
                 {"role": "user", "content": message}
             ],
-            max_tokens=200
+            max_tokens=50
         )
         return {"response": response.choices[0].message.content}
     except Exception as e:
