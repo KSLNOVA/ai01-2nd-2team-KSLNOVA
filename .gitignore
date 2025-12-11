@@ -1,13 +1,30 @@
 # 환경 변수 파일
 .env
 frontend/.env
+env.js
+frontend/env.js
 
 # 파이썬 캐시/빌드 파일
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
 
-# VSCode 설정
+# 가상환경
+.venv/
+venv/
+
+# 로컬 데이터/로그
+backend/exercise_data/
+exercise_data/
+*.log
+
+# 에디터 설정/임시파일
 .vscode/
-env.js
-frontend/env.js
+.idea/
+.DS_Store
 
+# 정적 빌드 아티팩트(추가 시)
+dist/
+build/
