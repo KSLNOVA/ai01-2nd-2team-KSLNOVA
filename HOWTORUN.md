@@ -40,8 +40,8 @@ python generate_env_js.py
 3) env.js이 아래와 같이 생성되면 성공
 ```javascript
 window.ENV = {
-  YOUTUBE_API_KEY: 'AIzaSyBbhRmlQG-9fIsF4ft6GK-FN1pkslnDeD4',
-  OPENAI_API_KEY: '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',
+  YOUTUBE_API_KEY: 'your key',
+  OPENAI_API_KEY: 'your key',
   IMAGE_ANALYZE_ENDPOINT: "http://localhost:8003/analyze-image",
 };
 ```
