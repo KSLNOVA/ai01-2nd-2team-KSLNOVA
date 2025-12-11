@@ -20,22 +20,18 @@ const OPENAI_API_KEY =
   fallbackEnv?.REACT_APP_OPENAI_API_KEY ||
   '';
 
-const EXERCISES = ['스쿼트', '플랭크'];
+const EXERCISES = ['스쿼트'];
 const EXERCISE_FOCUS = {
   스쿼트: ['무릎 트래킹', '엉덩이 힌지'],
-  플랭크: ['코어 안정성', '어깨-골반 정렬'],
 };
 
 const FALLBACK_YT = {
   스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
-  플랭크: 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw',
 };
 const FALLBACK_YT_ALT = {
   스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
-  플랭크: 'https://www.youtube-nocookie.com/embed/bm5Zbmr34yw',
 };
 const YT_QUERY_MAP = {
-  플랭크: '플랭크 운동 자세',
   스쿼트: '스쿼트 운동 자세',
 };
 const WS_URL =
@@ -54,6 +50,13 @@ const DEFAULT_HISTORY = [
 
 const timeLabel = () =>
   new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
+
+const formatClock = (sec = 0) => {
+  const total = Math.max(0, Math.floor(sec || 0));
+  const m = String(Math.floor(total / 60)).padStart(2, '0');
+  const s = String(total % 60).padStart(2, '0');
+  return `${m}:${s}`;
+};
 
 function App() {
   const [exercise, setExercise] = useState('스쿼트');
@@ -91,6 +94,7 @@ function App() {
   const imgRepRef = useRef(0);
 
   const videoRef = useRef(null);
+  const startCameraRef = useRef(null);
   const poseCanvasRef = useRef(null);
   const hiddenCanvasRef = useRef(null);
   const synthRef = useRef(null);
@@ -101,6 +105,7 @@ function App() {
   const exerciseRef = useRef('스쿼트');
   const repRef = useRef(0);
   const durationRef = useRef(0);
+  const isRecordingRef = useRef(false);
   const lastFrameTsRef = useRef(0);
   const lastSpokenAtRef = useRef(0);
   const videoErrorRef = useRef(0);
@@ -159,6 +164,7 @@ function App() {
   }, [isRecording]);
 
   useEffect(() => {
+    isRecordingRef.current = isRecording;
     if (!sessionStart) {
       setSessionDuration(0);
       return;
@@ -181,9 +187,26 @@ function App() {
         setSessionDuration(Math.max(1, Math.round((Date.now() - sessionStart) / 1000)));
       }
       setIsRecording(false);
+      isRecordingRef.current = false;
+      imgProcessingRef.current = false;
+      imgRepRef.current = 0;
+      setImgRepCount(0);
+      setImgStatus('대기 중');
+      setImgCaptured('');
+      // 웹캠 종료
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+        videoRef.current.srcObject = null;
+        setCameraReady(false);
+      }
       setAnalysisNote('로컬 분석 중지');
     } else {
+      // 웹캠 다시 시작
+      if (startCameraRef.current) {
+        startCameraRef.current();
+      }
       setIsRecording(true);
+      isRecordingRef.current = true;
       setRepCount(0);
       repRef.current = 0;
       setCoachingLog([]); // 로그 초기화
@@ -293,7 +316,7 @@ function App() {
   }, [exercise, videoPinned]);
 
   useEffect(() => {
-    async function initCamera() {
+    const startCamera = async () => {
       if (!videoRef.current) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -305,12 +328,14 @@ function App() {
         setCameraReady(false);
         setCameraError('웹캠 권한을 확인해 주세요.');
       }
-    }
-    initCamera();
+    };
+    startCameraRef.current = startCamera;
+    startCamera();
 
     return () => {
       if (videoRef.current && videoRef.current.srcObject) {
         videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+        videoRef.current.srcObject = null;
       }
       setCameraReady(false);
     };
@@ -615,7 +640,7 @@ function App() {
   }, [cameraReady]);
 
   const speakFeedback = (text, exerciseName) => {
-    if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported) return;
+    if (!ttsEnabledRef.current || !synthRef.current || !ttsSupported || !isRecordingRef.current) return;
     const say = (text || '').trim();
     if (!say) return;
     if (lastSpokenRef.current === say) return;
@@ -851,7 +876,7 @@ function App() {
         <header className="app-header">
           <div>
             <div className="app-kicker">KSL NOVA · AI Agent</div>
-            <h1 className="app-title">운동 자세 AI Agent</h1>
+            <h1 className="app-title">SQUAT COACH</h1>
             <p className="app-subtitle">웹캠 기반 실시간 코칭</p>
           </div>
           <div />
@@ -877,9 +902,9 @@ function App() {
               <div className="stat-meta">{sessionDuration ? `${sessionDuration}초 진행` : '운동 준비'}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">오늘의 포커스</div>
-              <div className="stat-value">{EXERCISE_FOCUS[exercise]?.[0] || '폼 안정성'}</div>
-              <div className="stat-meta">{EXERCISE_FOCUS[exercise]?.[1] || '호흡 유지'}</div>
+              <div className="stat-label">경과 시간</div>
+              <div className="stat-value">{formatClock(sessionDuration)}</div>
+              <div className="stat-meta">{isRecording ? '진행 중' : '대기'}</div>
             </div>
           </div>
         </section>
