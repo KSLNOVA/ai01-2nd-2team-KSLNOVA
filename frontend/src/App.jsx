@@ -1203,7 +1203,7 @@ function App() {
                   </div>
                   <iframe
                     width="100%"
-                    height="320"
+                    height="420"
                     src={youtubeUrl}
                     title="YouTube video player"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

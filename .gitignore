@@ -18,6 +18,7 @@ venv/
 # 로컬 데이터/로그
 backend/exercise_data/
 exercise_data/
+backend/exercise_records.db
 *.log
 
 # 에디터 설정/임시파일
