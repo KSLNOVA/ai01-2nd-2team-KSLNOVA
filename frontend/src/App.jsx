@@ -147,9 +147,14 @@ function App() {
   // 비디오 팝업 모달 상태
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [videoModalUrl, setVideoModalUrl] = useState('');
+  // 리포트 팝업 모달 상태
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportModalContent, setReportModalContent] = useState('');
   // 녹화 관련
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  // 피드백 수집 배열
+  const feedbackHistoryRef = useRef([]);
 
   const videoRef = useRef(null);
   const startCameraRef = useRef(null);
@@ -239,6 +244,7 @@ function App() {
               return `http://localhost:8003/video/${sessionFolder}/${filename}`;
             })() : '',
             summary: '저장된 기록',
+            summaryReport: log.summary_report || '',
           }));
           setExerciseHistory(records);
         }
@@ -313,14 +319,17 @@ function App() {
           durationSec: finalDuration,
           videoUrl: videoUrl,
           summary: imgFeedback || '운동 완료',
+          summaryReport: '', // 백엔드에서 받을 예정
         };
 
-        setExerciseHistory((prev) => [newRecord, ...prev]);
-        recordedChunksRef.current = [];
+        // 수집된 피드백 배열
+        const collectedFeedbacks = feedbackHistoryRef.current.length > 0
+          ? feedbackHistoryRef.current
+          : [imgFeedback || '운동 완료'];
 
-        // 백엔드 DB에 저장
+        // 백엔드 DB에 저장 및 종합 리포트 생성
         try {
-          await fetch('http://localhost:8003/save-session', {
+          const res = await fetch('http://localhost:8003/save-session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -329,13 +338,21 @@ function App() {
               duration: finalDuration,
               date: dateStr,
               video: videoBase64,
-              feedbacks: [imgFeedback || '운동 완료'],
+              feedbacks: collectedFeedbacks,
             }),
           });
+          const data = await res.json();
+          if (data.summary_report) {
+            newRecord.summaryReport = data.summary_report;
+          }
           console.log('✅ 운동 기록이 DB에 저장되었습니다.');
         } catch (err) {
           console.error('DB 저장 오류:', err);
         }
+
+        setExerciseHistory((prev) => [newRecord, ...prev]);
+        recordedChunksRef.current = [];
+        feedbackHistoryRef.current = []; // 피드백 수집 초기화
       };
 
       // MediaRecorder가 중지 후 데이터를 저장하도록 약간 지연
@@ -374,6 +391,7 @@ function App() {
       setFeedback('운동을 시작합니다! 자세를 잡아주세요.');
       setFeedbackExercise(exerciseRef.current);
       recordedChunksRef.current = [];
+      feedbackHistoryRef.current = []; // 피드백 수집 초기화
 
       // 웹캠 스트림이 준비되면 녹화 시작
       setTimeout(() => {
@@ -659,6 +677,10 @@ function App() {
       const safeFeedback = feedbackText || '분석 중 오류가 발생했습니다.';
       setImgFeedback(safeFeedback);
       setFeedback(safeFeedback); // 중앙 피드백도 동일하게 표시
+      // 피드백 수집 배열에 추가
+      if (isRecordingRef.current && safeFeedback) {
+        feedbackHistoryRef.current.push(safeFeedback);
+      }
       setImgStatus(`✅ ${nextRep}회 완료`);
       speakFeedback(safeFeedback, exerciseRef.current);
       capturedImage = null;
@@ -1113,7 +1135,6 @@ function App() {
             onClick={() => setShowLeftPanel((v) => !v)}
           >
             {showLeftPanel ? '◀' : '▶'}
-            <span className="edge-label">{showLeftPanel ? '패널 닫기' : '패널 열기'}</span>
           </button>
 
           <div className="grid-row" style={{ gridTemplateColumns: layoutColumns() }}>
@@ -1347,12 +1368,13 @@ function App() {
                         <th className="table-cell">횟수</th>
                         <th className="table-cell">시간</th>
                         <th className="table-cell">영상</th>
+                        <th className="table-cell">리포트</th>
                       </tr>
                     </thead>
                     <tbody>
                       {exerciseHistory.length === 0 ? (
                         <tr>
-                          <td className="table-cell" colSpan={5}>
+                          <td className="table-cell" colSpan={6}>
                           </td>
                         </tr>
                       ) : (
@@ -1375,6 +1397,22 @@ function App() {
                                 <span style={{ color: '#666', fontSize: '12px' }}>없음</span>
                               )}
                             </td>
+                            <td className="table-cell">
+                              {record.summaryReport ? (
+                                <button
+                                  className="ghost-button"
+                                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                                  onClick={() => {
+                                    setReportModalContent(record.summaryReport);
+                                    setReportModalOpen(true);
+                                  }}
+                                >
+                                  📋 보기
+                                </button>
+                              ) : (
+                                <span style={{ color: '#666', fontSize: '12px' }}>-</span>
+                              )}
+                            </td>
                           </tr>
                         ))
                       )}
@@ -1391,7 +1429,6 @@ function App() {
             onClick={() => setShowRightPanel((v) => !v)}
           >
             {showRightPanel ? '▶' : '◀'}
-            <span className="edge-label">{showRightPanel ? '패널 닫기' : '패널 열기'}</span>
           </button>
         </div>
       </div>
@@ -1475,6 +1512,75 @@ function App() {
               >
                 📥 다운로드
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 종합 리포트 팝업 모달 */}
+      {reportModalOpen && (
+        <div
+          className="report-modal-overlay"
+          onClick={() => setReportModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+        >
+          <div
+            className="report-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              maxWidth: '500px',
+              width: '90%',
+              backgroundColor: '#1a1a1a',
+              borderRadius: '12px',
+              padding: '24px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <button
+              onClick={() => setReportModalOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '-10px',
+                right: '-10px',
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: '#ff4444',
+                color: '#fff',
+                border: 'none',
+                fontSize: '20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(255, 68, 68, 0.4)',
+              }}
+            >
+              ×
+            </button>
+            <div style={{ marginBottom: '16px', color: '#4CAF50', fontSize: '18px', fontWeight: 700 }}>
+              📋 종합 리포트
+            </div>
+            <div
+              style={{
+                color: '#e0e0e0',
+                fontSize: '15px',
+                lineHeight: 1.7,
+                whiteSpace: 'pre-wrap',
+                maxHeight: '400px',
+                overflowY: 'auto',
+              }}
+            >
+              {reportModalContent}
             </div>
           </div>
         </div>

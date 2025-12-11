@@ -20,9 +20,16 @@ def init_db():
             reps INTEGER NOT NULL,
             duration REAL NOT NULL,
             video_path TEXT,
+            summary_report TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    
+    # 기존 테이블에 summary_report 컬럼이 없으면 추가
+    try:
+        cursor.execute("ALTER TABLE exercise_sessions ADD COLUMN summary_report TEXT")
+    except sqlite3.OperationalError:
+        pass  # 이미 컬럼이 존재함
     
     conn.commit()
     conn.close()
@@ -34,7 +41,8 @@ def save_exercise_record(
     exercise_type: str,
     reps: int,
     duration: float,
-    video_path: str = None
+    video_path: str = None,
+    summary_report: str = None
 ) -> int:
     """운동 기록 저장
     
@@ -44,6 +52,7 @@ def save_exercise_record(
         reps: 운동 횟수
         duration: 운동 시간 (초 단위)
         video_path: 영상 파일 경로
+        summary_report: 종합 피드백 리포트
     
     Returns:
         int: 저장된 레코드의 ID
@@ -52,9 +61,9 @@ def save_exercise_record(
     cursor = conn.cursor()
     
     cursor.execute("""
-        INSERT INTO exercise_sessions (date, exercise_type, reps, duration, video_path)
-        VALUES (?, ?, ?, ?, ?)
-    """, (date, exercise_type, reps, duration, video_path))
+        INSERT INTO exercise_sessions (date, exercise_type, reps, duration, video_path, summary_report)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (date, exercise_type, reps, duration, video_path, summary_report))
     
     record_id = cursor.lastrowid
     conn.commit()

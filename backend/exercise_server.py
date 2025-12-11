@@ -153,7 +153,7 @@ async def save_log(request: Request):
 
 @app.post("/save-session")
 async def save_session(request: Request):
-    """운동 세션 저장 (파일 + DB): 로그 + 영상"""
+    """운동 세션 저장 (파일 + DB): 로그 + 영상 + 종합 리포트"""
     data = await request.json()
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -161,6 +161,7 @@ async def save_session(request: Request):
     exercise_type = data.get("exercise", "unknown")
     reps = data.get("reps", 0)
     duration = data.get("duration", 0)
+    feedbacks = data.get("feedbacks", [])
     
     # 세션 폴더 생성
     session_dir = SAVE_DIR / f"{timestamp}_{exercise_type}"
@@ -172,7 +173,7 @@ async def save_session(request: Request):
         "reps": reps,
         "duration": duration,
         "date": data.get("date", timestamp),
-        "feedbacks": data.get("feedbacks", [])
+        "feedbacks": feedbacks
     }
     log_file = session_dir / "log.json"
     with open(log_file, "w", encoding="utf-8") as f:
@@ -190,20 +191,53 @@ async def save_session(request: Request):
             f.write(video_bytes)
         video_path = str(video_file)
     
-    # 3. DB에 저장 ✅
+    # 3. GPT로 종합 리포트 생성
+    summary_report = None
+    if feedbacks and len(feedbacks) > 0:
+        try:
+            feedback_text = "\n".join([f"- {fb}" for fb in feedbacks if fb])
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""당신은 운동 자세 분석 전문가입니다.
+아래는 사용자의 {exercise_type} 운동 중 받은 피드백 목록입니다.
+이 피드백들을 종합하여 3-4문장의 운동 리포트를 작성하세요.
+- 잘한 점
+- 개선이 필요한 점  
+- 다음 운동 시 주의사항
+을 포함해주세요. 한국어로 간결하게 작성하세요."""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"운동: {exercise_type}\n횟수: {reps}회\n시간: {duration}초\n\n받은 피드백:\n{feedback_text}"
+                    }
+                ],
+                max_tokens=300
+            )
+            summary_report = response.choices[0].message.content
+            print(f"✅ 종합 리포트 생성 완료")
+        except Exception as e:
+            print(f"종합 리포트 생성 오류: {e}")
+            summary_report = f"총 {reps}회 운동 완료. 피드백: " + ", ".join(feedbacks[:3])
+    
+    # 4. DB에 저장 ✅
     record_id = db.save_exercise_record(
         date=date_str,
         exercise_type=exercise_type,
         reps=reps,
         duration=duration,
-        video_path=video_path
+        video_path=video_path,
+        summary_report=summary_report
     )
     
     return {
         "success": True,
         "record_id": record_id,
         "saved_path": str(session_dir),
-        "log_file": str(log_file)
+        "log_file": str(log_file),
+        "summary_report": summary_report
     }
 
 @app.get("/get-logs")
