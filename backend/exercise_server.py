@@ -4,6 +4,10 @@ from openai import OpenAI
 import json
 from dotenv import load_dotenv
 import os
+import base64
+from datetime import datetime
+from pathlib import Path
+import httpx
 
 load_dotenv()
 
@@ -22,15 +26,25 @@ app.add_middleware(
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# 운동 로그 저장 디렉토리
+exercise_logs = []
+SAVE_DIR = Path(__file__).parent / "exercise_data"
+SAVE_DIR.mkdir(exist_ok=True)
+
+# YouTube API Key
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+
 # ======== 이미지 분석 엔드포인트 ========
 @app.post("/analyze-image")
 async def analyze_image(request: Request):
-    """스쿼트 최하단 이미지를 분석하여 피드백 제공"""
+    """운동 자세 이미지를 분석하여 피드백 제공 (스쿼트/플랭크/숄더프레스)"""
     data = await request.json()
     
     image_data = data.get("image", "")
     rep_count = data.get("rep_count", 0)
     exercise_type = data.get("exercise_type", "squat")
+    hold_time = data.get("hold_time", 0)  # 플랭크용 유지 시간
     
     if not image_data:
         return {"feedback": "이미지가 없습니다."}
@@ -41,10 +55,28 @@ async def analyze_image(request: Request):
     # 운동별 프롬프트
     prompts = {
         "squat": """스쿼트 자세 분석:
-1. 깊이: 무릎 최소 각도가 80~90°면 적절한 스쿼트
-2. 상체: 평균 상체 각도가 85~100° 정도면 좋음 (너무 숙이거나 세우면 안됨)
+1. 깊이: 무릎 최소 각도가 60~90°면 적절한 스쿼트
+2. 상체: 평균 상체 각도가 70~100° 정도면 좋음 (너무 숙이거나 세우면 안됨)
 3. 속도: 하강/상승 비율이 비슷해야 좋음 (급하게 내려가거나 올라오면 안됨)""",
+        "plank": """플랭크 자세 분석:
+1. 몸이 어깨-엉덩이-발목이 일직선이어야 함 (160~185° 범위)
+2. 엉덩이가 너무 올라가면(pike) 안 됨 - "엉덩이를 내려주세요"
+3. 엉덩이가 너무 처지면(sag) 안 됨 - "엉덩이를 올려주세요"
+4. 목이 자연스럽게 척추와 일직선이어야 함
+5. 코어에 힘을 주고 있는지 확인""",
+        "shoulder_press": """숄더프레스 자세 분석:
+1. 시작 자세: 팔꿈치 각도가 약 90° (덤벨/바벨이 어깨 높이)
+2. 완료 자세: 팔꿈치 각도가 160° 이상 (팔이 거의 펴짐)
+3. 팔꿈치가 너무 벌어지면 안 됨 (어깨 부상 위험)
+4. 허리가 과도하게 젖혀지면 안 됨 (코어 긴장 유지)
+5. 손목이 꺾이지 않고 일직선 유지"""
     }
+    
+    # 운동별 컨텍스트 메시지
+    if exercise_type == "plank":
+        context_msg = f"플랭크 {hold_time}초 유지 중 자세입니다."
+    else:
+        context_msg = f"{exercise_type} {rep_count}회차 자세입니다."
     
     try:
         response = client.chat.completions.create(
@@ -57,14 +89,13 @@ async def analyze_image(request: Request):
 
 출력 규칙:
 - 자세가 문제가 있으면 그에 맞는 피드백하세요, **한국어로 매우 짧고(10자 내외), 직관적인 피드백을 하세요.**
-- 가장 문제가 되는 자세 분석 요인을 하나만 말하세요.
-- 자세가 전반적으로 좋으면: "좋은 스쿼트입니다!"
+- 자세가 전반적으로 좋으면: "좋은 {exercise_type}입니다!"
 """
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"{exercise_type} {rep_count}회차 자세입니다."},
+                        {"type": "text", "text": context_msg},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}", "detail": "low"}}
                     ]
                 }
@@ -95,7 +126,8 @@ async def chat(request: Request):
                     "role": "system",
                     "content": """너는 피트니스 전문 AI 트레이너야.
 운동 방법, 자세, 식단, 운동 계획 등에 대해 친절하게 답변해.
-한국어로 간결하게 답변해 (1문장)."""
+스쿼트, 플랭크, 숄더프레스에 특히 전문적이야.
+한국어로 간결하게 답변해 (2-3문장)."""
                 },
                 {"role": "user", "content": message}
             ],
@@ -108,14 +140,6 @@ async def chat(request: Request):
 
 
 # ======== 운동 로그 및 영상 저장 ========
-import base64
-from datetime import datetime
-from pathlib import Path
-
-exercise_logs = []
-SAVE_DIR = Path(__file__).parent / "exercise_data"
-SAVE_DIR.mkdir(exist_ok=True)
-
 @app.post("/save-log")
 async def save_log(request: Request):
     """운동 로그 저장 (메모리)"""
@@ -140,6 +164,7 @@ async def save_session(request: Request):
         "exercise": exercise_type,
         "reps": data.get("reps", 0),
         "duration": data.get("duration", 0),
+        "hold_time": data.get("hold_time", 0),  # 플랭크용
         "date": data.get("date", timestamp),
         "feedbacks": data.get("feedbacks", [])
     }
@@ -170,10 +195,6 @@ async def get_logs():
 
 
 # ======== YouTube 검색 엔드포인트 ========
-import httpx
-
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-
 @app.get("/search-youtube")
 async def search_youtube(exercise: str = "squat"):
     """운동 카테고리별 유튜브 영상 검색"""
@@ -181,13 +202,15 @@ async def search_youtube(exercise: str = "squat"):
     # 운동별 검색어
     search_queries = {
         "squat": "스쿼트 자세 튜토리얼",
+        "plank": "플랭크 자세 튜토리얼",
+        "shoulder_press": "숄더프레스 덤벨 자세 튜토리얼"
     }
     
     query = search_queries.get(exercise, "운동 자세 튜토리얼")
     
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(
                 "https://www.googleapis.com/youtube/v3/search",
                 params={
                     "part": "snippet",
@@ -213,5 +236,4 @@ async def search_youtube(exercise: str = "squat"):
         return {"videos": [], "error": str(e)}
 
 
-# uvicorn final_server:app --host 0.0.0.0 --port 8003
-# python -m http.server 8080
+# uvicorn exercise_server:app --host 0.0.0.0 --port 8003

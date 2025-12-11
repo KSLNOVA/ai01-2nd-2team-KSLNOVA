@@ -3,36 +3,85 @@ const { useEffect, useRef, useState } = React;
 // window.ENV는 index.html에서 설정됨
 const env = window.ENV || {};
 const fallbackEnv = typeof process !== 'undefined' ? process.env : {};
+const pickEnv = (...candidates) => {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return '';
+};
 
-const YOUTUBE_API_KEY =
-  env?.YOUTUBE_API_KEY ||
-  env?.VITE_YOUTUBE_API_KEY ||
-  env?.REACT_APP_YOUTUBE_API_KEY ||
-  fallbackEnv?.VITE_YOUTUBE_API_KEY ||
-  fallbackEnv?.REACT_APP_YOUTUBE_API_KEY ||
-  '';
+const YOUTUBE_API_KEY = pickEnv(
+  env?.YOUTUBE_API_KEY,
+  env?.VITE_YOUTUBE_API_KEY,
+  env?.REACT_APP_YOUTUBE_API_KEY,
+  fallbackEnv?.VITE_YOUTUBE_API_KEY,
+  fallbackEnv?.REACT_APP_YOUTUBE_API_KEY
+);
 
-const OPENAI_API_KEY =
-  env?.OPENAI_API_KEY ||
-  env?.VITE_OPENAI_API_KEY ||
-  env?.REACT_APP_OPENAI_API_KEY ||
-  fallbackEnv?.VITE_OPENAI_API_KEY ||
-  fallbackEnv?.REACT_APP_OPENAI_API_KEY ||
-  '';
+const OPENAI_API_KEY = pickEnv(
+  env?.OPENAI_API_KEY,
+  env?.VITE_OPENAI_API_KEY,
+  env?.REACT_APP_OPENAI_API_KEY,
+  fallbackEnv?.VITE_OPENAI_API_KEY,
+  fallbackEnv?.REACT_APP_OPENAI_API_KEY
+);
 
-const EXERCISES = ['스쿼트'];
+const IMAGE_ANALYZE_ENDPOINT =
+  pickEnv(
+    env?.IMAGE_ANALYZE_ENDPOINT,
+    env?.VITE_IMAGE_ANALYZE_ENDPOINT,
+    env?.REACT_APP_IMAGE_ANALYZE_ENDPOINT,
+    fallbackEnv?.VITE_IMAGE_ANALYZE_ENDPOINT,
+    fallbackEnv?.REACT_APP_IMAGE_ANALYZE_ENDPOINT
+  ) || 'http://localhost:8003/analyze-image';
+
+const EXERCISES = ['스쿼트', '숄더프레스'];
 const EXERCISE_FOCUS = {
   스쿼트: ['무릎 트래킹', '엉덩이 힌지'],
+  숄더프레스: ['어깨 안정성', '팔꿈치-손목 정렬'],
+};
+const EXERCISE_SLUG = {
+  스쿼트: 'squat',
+  숄더프레스: 'shoulder_press',
+};
+const EXERCISE_SKELETON = {
+  스쿼트: {
+    points: [11, 12, 23, 24, 25, 26, 27, 28],
+    connections: [
+      [11, 12],
+      [11, 23],
+      [12, 24],
+      [23, 24],
+      [23, 25],
+      [24, 26],
+      [25, 27],
+      [26, 28],
+    ],
+  },
+  숄더프레스: {
+    // 상체/팔 중심
+    points: [11, 12, 13, 14, 15, 16],
+    connections: [
+      [11, 12],
+      [11, 13],
+      [13, 15],
+      [12, 14],
+      [14, 16],
+    ],
+  },
 };
 
 const FALLBACK_YT = {
   스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
+  숄더프레스: 'https://www.youtube-nocookie.com/embed/o3B-KMsXcAQ',
 };
 const FALLBACK_YT_ALT = {
   스쿼트: 'https://www.youtube-nocookie.com/embed/urOSaROmTIk',
+  숄더프레스: 'https://www.youtube-nocookie.com/embed/o3B-KMsXcAQ',
 };
 const YT_QUERY_MAP = {
   스쿼트: '스쿼트 운동 자세',
+  숄더프레스: '숄더프레스 운동자세',
 };
 const WS_URL =
   (typeof window !== 'undefined' && window.WS_URL)
@@ -436,14 +485,17 @@ function App() {
     };
 
     const sendImageForAnalysis = async (imageData, count) => {
-      const endpoint =
-        (typeof window !== 'undefined' && window.ENV && window.ENV.IMAGE_ANALYZE_ENDPOINT) ||
-        'http://localhost:8002/analyze-image';
+      const endpoint = IMAGE_ANALYZE_ENDPOINT;
       try {
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageData, rep_count: count }),
+          body: JSON.stringify({
+            image: imageData,
+            rep_count: count,
+            exercise_type: EXERCISE_SLUG[exerciseRef.current] || 'squat',
+            hold_time: 0,
+          }),
         });
         const data = await res.json();
         return data.feedback;
@@ -461,7 +513,7 @@ function App() {
       setImgRepCount(nextRep);
       setRepCount(nextRep); // 상단 바 카운트도 동기화
       setImgStatus('📸 이미지 분석 중...');
-      const feedbackText = await sendImageForAnalysis(capturedImage, nextRep);
+        const feedbackText = await sendImageForAnalysis(capturedImage, nextRep);
       const safeFeedback = feedbackText || '분석 중 오류가 발생했습니다.';
       setImgFeedback(safeFeedback);
       setFeedback(safeFeedback); // 중앙 피드백도 동일하게 표시
@@ -541,26 +593,22 @@ function App() {
             const knee = lm[25].z < lm[26].z ? lm[25] : lm[26];
             const ankle = lm[27].z < lm[28].z ? lm[27] : lm[28];
             const kneeAngle = calculateAngle(hip, knee, ankle);
-            setImgKneeAngle(kneeAngle.toFixed(1));
+            if (exerciseRef.current === '숄더프레스') {
+              setImgKneeAngle('—');
+            } else {
+              setImgKneeAngle(kneeAngle.toFixed(1));
+            }
 
-            // 스켈레톤 오버레이 (하체 주요 관절만)
+            // 스켈레톤 오버레이 (운동별)
             if (poseCtx) {
-              const squatIdx = [11, 12, 23, 24, 25, 26, 27, 28];
+              const skeleton = EXERCISE_SKELETON[exerciseRef.current] || EXERCISE_SKELETON['스쿼트'];
+              const points = skeleton.points || [];
               const lineColor = '#ffcc00'; // 눈에 띄는 노란색 라인
               const pointColor = '#ff4444'; // 눈에 띄는 빨간색 포인트
               poseCtx.strokeStyle = lineColor;
               poseCtx.lineWidth = 3;
               poseCtx.fillStyle = pointColor;
-              const connections = [
-                [11, 12],
-                [11, 23],
-                [12, 24],
-                [23, 24],
-                [23, 25],
-                [24, 26],
-                [25, 27],
-                [26, 28],
-              ];
+              const connections = skeleton.connections || [];
               const drawSkeleton = (ctx) => {
                 ctx.strokeStyle = lineColor;
                 ctx.lineWidth = 3;
@@ -573,7 +621,7 @@ function App() {
                     ctx.stroke();
                   }
                 });
-                squatIdx.forEach((idx) => {
+                points.forEach((idx) => {
                   if (lm[idx]) {
                     ctx.beginPath();
                     ctx.arc(lm[idx].x * vw, lm[idx].y * vh, 5, 0, Math.PI * 2);
@@ -876,7 +924,7 @@ function App() {
         <header className="app-header">
           <div>
             <div className="app-kicker">KSL NOVA · AI Agent</div>
-            <h1 className="app-title">SQUAT COACH</h1>
+            <h1 className="app-title">EXERCISE COACH</h1>
             <p className="app-subtitle">웹캠 기반 실시간 코칭</p>
           </div>
           <div />
@@ -897,7 +945,7 @@ function App() {
               <div className="stat-meta">{sessionMeta}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">현재 카운트</div>
+              <div className="stat-label">{`${exercise} 횟수`}</div>
               <div className="stat-value">{repCount} 회</div>
               <div className="stat-meta">{sessionDuration ? `${sessionDuration}초 진행` : '운동 준비'}</div>
             </div>
@@ -1022,15 +1070,15 @@ function App() {
                     </div>
                   </div>
                 </div>
-            <div className="media-card analysis-card">
-              <div className="media-title-row">
-                <span className="section-title">라이브 + 분석 뷰</span>
-                <div className="media-labels">
-                  <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
-                  <span className="media-label media-label-live">로컬 분석</span>
-                </div>
-              </div>
-              <div className="single-video">
+                <div className="media-card analysis-card">
+                  <div className="media-title-row">
+                    <span className="section-title">{`${exercise} 라이브 + 분석 뷰`}</span>
+                    <div className="media-labels">
+                      <span className="media-label">{cameraReady ? 'Live' : '대기'}</span>
+                      <span className="media-label media-label-live">로컬 분석</span>
+                    </div>
+                  </div>
+                  <div className="single-video">
                     <div className="video-frame-shell analysis-shell">
                       <video
                         ref={videoRef}
@@ -1066,7 +1114,11 @@ function App() {
                         </div>
                       )}
                     </div>
-                    <div className="analysis-note">{processedFrame ? '분석 프레임 표시 중' : analysisNote}</div>
+                    <div className="analysis-note">
+                      {processedFrame
+                        ? `${exercise} 분석 프레임 표시 중`
+                        : analysisNote}
+                    </div>
                   </div>
                   {cameraError ? <div className="helper-text">{cameraError}</div> : null}
                   <div className="camera-controls">
@@ -1077,8 +1129,8 @@ function App() {
                     >
                       {isRecording ? '운동 종료 (리포트 생성)' : '운동 시작'}
                     </button>
-                    <div className="micro-meter">
-                      <span className="micro-pill">{repCount} Reps</span>
+                  <div className="micro-meter">
+                      <span className="micro-pill">{`${exercise} ${repCount}회`}</span>
                       <span className="micro-pill">{sessionDuration ? `${sessionDuration}초` : '대기'}</span>
                     </div>
                   </div>
@@ -1122,17 +1174,19 @@ function App() {
               <div className="panel">
                 <div className="panel-header">이미지 기반 피드백</div>
                 <div className="stat-card" style={{ marginBottom: 10 }}>
-                  <div className="stat-label">스쿼트 횟수</div>
+                  <div className="stat-label">{`${exercise} 횟수`}</div>
                   <div className="stat-value" style={{ fontSize: 28 }}>{imgRepCount}</div>
                   <div className="stat-meta">{imgStatus}</div>
                 </div>
-                <div className="stat-card" style={{ marginBottom: 10 }}>
-                  <div className="stat-label">무릎 각도</div>
-                  <div className="stat-value" style={{ fontSize: 24 }}>
-                    {imgKneeAngle}°
+                {exercise !== '숄더프레스' && (
+                  <div className="stat-card" style={{ marginBottom: 10 }}>
+                    <div className="stat-label">무릎 각도</div>
+                    <div className="stat-value" style={{ fontSize: 24 }}>
+                      {`${imgKneeAngle}°`}
+                    </div>
+                    <div className="stat-meta">자세 상태: {imgPoseState}</div>
                   </div>
-                  <div className="stat-meta">자세 상태: {imgPoseState}</div>
-                </div>
+                )}
                 <div className="stat-card" style={{ marginBottom: 10 }}>
                   <div className="stat-label">캡처된 이미지</div>
                   {imgCaptured ? (

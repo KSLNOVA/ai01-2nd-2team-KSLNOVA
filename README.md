@@ -1,18 +1,18 @@
 # ai01-2nd-2team-KSLNOVA
-The second project of NOVA - **운동 자세 교정 AI Agent**
+The second project of NOVA - **SQUAT COACH**
 
 ----------------------------
 
 # 프로젝트 기획서
 
 ## 1. 프로젝트 정의
-- **프로젝트 이름(가칭)** : 🏋🏻운동 자세 AI Agent
-- **목표 (현재 범위)**  
-  - 웹캠 프레임을 브라우저에서 캡처하여 FastAPI WebSocket으로 전송  
-  - MediaPipe Pose 기반 관절 각도 계산으로 스쿼트/플랭크 실시간 피드백·rep 카운트  
-  - OpenAI API로 코칭/리포트 텍스트 생성, 브라우저 Web Speech API로 TTS 재생  
-  - YouTube Data API(또는 ID/링크 직접 입력)로 튜토리얼 임베드, 실패 시 기본 영상 대체  
-  - 프론트엔드만으로 키 관리(.env → env.js), 로컬 HTTP 서버에서 즉시 데모 가능
+- **프로젝트 이름** : SQUAT COACH
+- **목표**  
+  - 브라우저에서 웹캠 캡처 → 최하단 이미지만 FastAPI REST(`/analyze-image`)로 전송해 분석  
+  - 로컬 Mediapipe Pose로 스쿼트/플랭크 관절 각도·rep 카운트 및 스켈레톤/캡처 표시  
+  - OpenAI API로 캡처 이미지 분석 후 한국어 피드백 생성, Web Speech API로 TTS 재생  
+  - YouTube Data API로 튜토리얼 임베드, 실패 시 기본 영상으로 폴백  
+  - 키는 .env → env.js로 주입, 프론트는 정적 서버(`python -m http.server 5500`)에서 동작  
 
 - **참고/참고 논문**  
   - MediaPipe 기반 운동자세 교정 시스템의 기능 개선 연구  
@@ -20,7 +20,7 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   - 실시간 동작 인식 및 자세 교정 스마트 미러 피트니스 시스템
 
 ## 2. 주요 내용
-- **📅 프로젝트 기간**: 2025-12-02 ~ 2025-12-10
+- **📅 프로젝트 기간**: 2025-12-02 ~ 2025-12-12
 - **👨🏻‍👩🏻‍👧🏻‍👦🏻 팀원 소개**
 
 <table>
@@ -48,10 +48,10 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
   </tr>
   <tr>
     <td align="center">역할</td>
-    <td align="center">TTS · 팀장</td>
-    <td align="center">UI / Frontend</td>
-    <td align="center">CV</td>
-    <td align="center">LLM</td>
+    <td align="center">팀장<br/>PM</td>
+    <td align="center">Frontend</td>
+    <td align="center">backend</td>
+    <td align="center">backend</td>
   </tr>
 <tr>
   <td align="center">담당 모듈</td>
@@ -61,13 +61,11 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
     텍스트→음성 변환
   </td>
   <td align="center">
-    웹 UI(React + WS)<br/>
-    웹캠/튜토리얼 뷰
+    웹 UI(React)
   </td>
   <td align="center">
     MediaPipe Pose<br/>
     관절 각도 계산<br/>
-    (YOLO 확장)
   </td>
   <td align="center">
     OpenAI API 코칭/리포트<br/>
@@ -93,19 +91,19 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 | TTS                       | 2025-01-22 | 2025-01-28 | 7       |
 | 피드백                      | 2025-01-29 | 2025-02-04 | 7       |
 | UI                       | 2025-02-05 | 2025-02-07 | 3       |
-| 프로젝트 발표               | 2025-12-10 | 2025-12-10 | 1       |
+| 프로젝트 발표               | 2025-12-12 | 2025-12-12 | 1       |
 
 -----------------------------
 
 # 작업 분할 구조 (WBS)
 
 ### 1. 📸 CV & 실시간 처리
-- 웹캠 캡처 → WebSocket 전송 → MediaPipe Pose 각도 계산
-- 스쿼트/플랭크 규칙 기반 rep 카운트·instant 피드백
-- 처리된 프레임 이미지 반환(오버레이) 및 저장 옵션(video/)
+- 웹캠 캡처 → 로컬 Mediapipe Pose 각도 계산 → 최하단 이미지 캡처만 REST(`/analyze-image`)로 전송
+- 스쿼트/플랭크 규칙 기반 rep 카운트·instant 피드백(스켈레톤/캡처 오버레이)
+- 프레임 저장/오버레이 표시(WS 사용 안 함)
 
 ### 2. 💬 LLM 코칭 & 리포트
-- OpenAI API로 코칭 문구/세션 리포트 생성
+- OpenAI API로 캡처 이미지 분석 후 한국어 피드백 생성
 - 운동 선택에 따라 코칭 필터링 및 세션별 로그
 - 오류 시 기본 안내로 폴백
 
@@ -120,20 +118,21 @@ The second project of NOVA - **운동 자세 교정 AI Agent**
 ### 5. 💻 프론트엔드 UX
 - React(바닐라 JSX+CDN) 단일 페이지, 분석 뷰/튜토리얼/채팅 UI
 - 운동 전환 시 상태 초기화, 키 없음·API 실패 시 안내
+- env.js는 루트 .env 기반 생성, 정적 서버(`python -m http.server`)로 구동
 
 ---------------------------
 
 # 요구사항 정의서
 
 ## 1. 기능 요구사항
-- [FR-01] 브라우저에서 웹캠을 켜고 프레임을 WebSocket으로 실시간 전송한다.
-- [FR-02] 서버는 MediaPipe Pose(확장 여지: YOLO)로 관절 좌표·각도를 계산한다.
-- [FR-03] 스쿼트/플랭크 규칙으로 instant 피드백과 rep 카운트를 계산해 반환한다.
-- [FR-04] OpenAI API로 코칭 문구·세션 리포트를 생성해 UI에 표시한다.
-- [FR-05] 브라우저 Web Speech API로 텍스트 피드백을 음성으로 재생한다.
-- [FR-06] 사용자 채팅(Q&A)을 LLM으로 처리해 운동별 답변을 제공한다.
-- [FR-07] 운동 선택에 맞춰 YouTube 추천/검색을 수행하고, 실패 시 기본 영상으로 대체한다.
-- [FR-08] 운동 변경 시 세션 상태·로그를 초기화하고 잘못된 운동의 피드백이 섞이지 않도록 한다.
+- [FR-01] 브라우저에서 웹캠을 켜고 로컬 Mediapipe로 관절 좌표·각도를 계산한다(WS 미사용).
+- [FR-02] 스쿼트/플랭크 규칙으로 rep 카운트·최하단 캡처를 수행하고, 스켈레톤/캡처를 UI에 표시한다.
+- [FR-03] 최하단 캡처 이미지를 FastAPI REST(`/analyze-image`)로 전송해 OpenAI API 기반 피드백을 받는다.
+- [FR-04] 브라우저 Web Speech API로 텍스트 피드백을 음성(TTS)으로 재생한다.
+- [FR-05] YouTube Data API(또는 수동 ID/링크)로 튜토리얼 영상을 임베드하고, 실패 시 기본 영상으로 대체한다.
+- [FR-06] 운동 변경 시 세션 상태(카운트/로그/피드백)를 초기화한다.
+- [FR-07] API 키·엔드포인트는 `.env → env.js`로 주입해 프론트에서 사용한다.
+- [FR-08] 필요 시 세션 종료 시 카메라 스트림을 정지하고, 시작 시 재요청한다.
 
 ## 2. 비기능 요구사항
 - [NFR-01] 로컬 데모 기준 저지연(수백 ms~1s) 피드백을 목표로 한다.
