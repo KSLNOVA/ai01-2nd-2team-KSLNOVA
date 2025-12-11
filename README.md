@@ -13,6 +13,7 @@ The second project of NOVA - **EXERCISE COACH**
   - 최하단 캡처를 `/analyze-image`로 전송해 OpenAI API 기반 한국어 피드백 생성, Web Speech API로 TTS 재생  
   - YouTube Data API로 튜토리얼 임베드, 실패 시 기본 영상으로 폴백  
   - 키는 백엔드 환경변수(OPENAI_API_KEY, YOUTUBE_API_KEY)로 주입하며 필요 시 env.js 생성 옵션 유지  
+  - 현재 운동: 스쿼트 / 숄더프레스(상체 11~16 포인트 기준), WS 미사용, 포트 8003 단일 진입
 
 - **참고/참고 논문**  
   - MediaPipe 기반 운동자세 교정 시스템의 기능 개선 연구  
@@ -196,7 +197,7 @@ pip install -r requirements.txt
 **Frontend**
 <p align="center">
   <img src="https://img.shields.io/badge/React(CDN)-61DAFB?style=for-the-badge&logo=react&logoColor=0B1E2D"/>
-  <img src="https://img.shields.io/badge/Babel- F9DC3E?style=for-the-badge&logo=babel&logoColor=000"/>
+  <img src="https://img.shields.io/badge/Babel-F9DC3E?style=for-the-badge&logo=babel&logoColor=000"/>
   <img src="https://img.shields.io/badge/Mediapipe-00C7B7?style=for-the-badge&logo=google&logoColor=white"/>
   <img src="https://img.shields.io/badge/Web%20Speech%20API-7C3AED?style=for-the-badge&logoColor=white"/>
   <img src="https://img.shields.io/badge/YouTube%20Data%20API-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
