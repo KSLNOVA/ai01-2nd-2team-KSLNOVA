@@ -81,15 +81,15 @@ const FALLBACK_YT_ALT = {
 };
 const YT_QUERY_MAP = {
   스쿼트: '스쿼트 운동 자세',
-  숄더프레스: '숄더프레스 운동자세',
+  숄더프레스: '숄더프레스 운동 자세',
 };
 const WS_URL =
   (typeof window !== 'undefined' && window.WS_URL)
     ? window.WS_URL
     : (typeof window !== 'undefined' &&
-        window.location &&
-        window.location.origin &&
-        window.location.origin.startsWith('http'))
+      window.location &&
+      window.location.origin &&
+      window.location.origin.startsWith('http'))
       ? window.location.origin.replace(/^http/, 'ws') + '/ws/feedback'
       : 'ws://localhost:8000/ws/feedback';
 
@@ -141,6 +141,15 @@ function App() {
   const [imgFeedback, setImgFeedback] = useState('최하단에서 이미지를 캡처해 AI가 분석합니다.');
   const [imgStatus, setImgStatus] = useState('대기 중');
   const imgRepRef = useRef(0);
+
+  // 운동 기록 저장 (날짜, 운동명, 횟수, 시간, 영상)
+  const [exerciseHistory, setExerciseHistory] = useState([]);
+  // 비디오 팝업 모달 상태
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [videoModalUrl, setVideoModalUrl] = useState('');
+  // 녹화 관련
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
 
   const videoRef = useRef(null);
   const startCameraRef = useRef(null);
@@ -209,8 +218,36 @@ function App() {
   }, [processedFrame]);
 
   useEffect(() => {
-    // WS 기반 분석을 제거했으므로 타임아웃 알림을 비활성화
-  }, [isRecording]);
+    // 앱 시작 시 DB에서 운동 기록 불러오기
+    const fetchExerciseHistory = async () => {
+      try {
+        const res = await fetch('http://localhost:8003/get-logs?limit=50');
+        const data = await res.json();
+        if (data.logs && Array.isArray(data.logs)) {
+          const records = data.logs.map((log) => ({
+            id: log.id,
+            date: log.date,
+            exercise: log.exercise_type,
+            repCount: log.reps,
+            duration: formatClock(log.duration),
+            durationSec: log.duration,
+            videoUrl: log.video_path ? (() => {
+              // video_path 예: "backend/exercise_data/20251211_123456_squat/exercise.webm"
+              const parts = log.video_path.replace(/\\/g, '/').split('/');
+              const filename = parts.pop(); // exercise.webm
+              const sessionFolder = parts.pop(); // 20251211_123456_squat
+              return `http://localhost:8003/video/${sessionFolder}/${filename}`;
+            })() : '',
+            summary: '저장된 기록',
+          }));
+          setExerciseHistory(records);
+        }
+      } catch (err) {
+        console.error('운동 기록 불러오기 실패:', err);
+      }
+    };
+    fetchExerciseHistory();
+  }, []);
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -232,9 +269,78 @@ function App() {
 
   const toggleRecording = () => {
     if (isRecording) {
-      if (sessionStart) {
-        setSessionDuration(Math.max(1, Math.round((Date.now() - sessionStart) / 1000)));
+      // 녹화 종료 및 저장
+      const finalDuration = sessionStart
+        ? Math.max(1, Math.round((Date.now() - sessionStart) / 1000))
+        : sessionDuration;
+      setSessionDuration(finalDuration);
+
+      // MediaRecorder 종료
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
       }
+
+      // 녹화된 비디오 Blob 생성 및 운동 기록 저장
+      const saveExerciseRecord = async () => {
+        let videoUrl = '';
+        let videoBase64 = '';
+        if (recordedChunksRef.current.length > 0) {
+          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          videoUrl = URL.createObjectURL(blob);
+
+          // 비디오를 Base64로 변환 (백엔드 저장용)
+          try {
+            const reader = new FileReader();
+            videoBase64 = await new Promise((resolve) => {
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+          } catch (err) {
+            console.error('비디오 변환 오류:', err);
+          }
+        }
+
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = formatClock(finalDuration);
+
+        const newRecord = {
+          id: Date.now(),
+          date: dateStr,
+          exercise: exerciseRef.current,
+          repCount: repRef.current,
+          duration: timeStr,
+          durationSec: finalDuration,
+          videoUrl: videoUrl,
+          summary: imgFeedback || '운동 완료',
+        };
+
+        setExerciseHistory((prev) => [newRecord, ...prev]);
+        recordedChunksRef.current = [];
+
+        // 백엔드 DB에 저장
+        try {
+          await fetch('http://localhost:8003/save-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              exercise: exerciseRef.current,
+              reps: repRef.current,
+              duration: finalDuration,
+              date: dateStr,
+              video: videoBase64,
+              feedbacks: [imgFeedback || '운동 완료'],
+            }),
+          });
+          console.log('✅ 운동 기록이 DB에 저장되었습니다.');
+        } catch (err) {
+          console.error('DB 저장 오류:', err);
+        }
+      };
+
+      // MediaRecorder가 중지 후 데이터를 저장하도록 약간 지연
+      setTimeout(saveExerciseRecord, 300);
+
       setIsRecording(false);
       isRecordingRef.current = false;
       imgProcessingRef.current = false;
@@ -267,7 +373,43 @@ function App() {
       setSessionDuration(0);
       setFeedback('운동을 시작합니다! 자세를 잡아주세요.');
       setFeedbackExercise(exerciseRef.current);
+      recordedChunksRef.current = [];
+
+      // 웹캠 스트림이 준비되면 녹화 시작
+      setTimeout(() => {
+        if (videoRef.current && videoRef.current.srcObject) {
+          try {
+            const stream = videoRef.current.srcObject;
+            const options = { mimeType: 'video/webm;codecs=vp9' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+              options.mimeType = 'video/webm';
+            }
+            const recorder = new MediaRecorder(stream, options);
+            recorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) {
+                recordedChunksRef.current.push(e.data);
+              }
+            };
+            recorder.start(1000); // 1초마다 데이터 수집
+            mediaRecorderRef.current = recorder;
+          } catch (err) {
+            console.error('녹화 시작 오류:', err);
+          }
+        }
+      }, 500);
     }
+  };
+
+  // 비디오 팝업 열기
+  const openVideoModal = (url) => {
+    setVideoModalUrl(url);
+    setVideoModalOpen(true);
+  };
+
+  // 비디오 팝업 닫기
+  const closeVideoModal = () => {
+    setVideoModalOpen(false);
+    setVideoModalUrl('');
   };
 
   const appendLog = (text) =>
@@ -513,7 +655,7 @@ function App() {
       setImgRepCount(nextRep);
       setRepCount(nextRep); // 상단 바 카운트도 동기화
       setImgStatus('📸 이미지 분석 중...');
-        const feedbackText = await sendImageForAnalysis(capturedImage, nextRep);
+      const feedbackText = await sendImageForAnalysis(capturedImage, nextRep);
       const safeFeedback = feedbackText || '분석 중 오류가 발생했습니다.';
       setImgFeedback(safeFeedback);
       setFeedback(safeFeedback); // 중앙 피드백도 동일하게 표시
@@ -799,7 +941,7 @@ function App() {
     setVideoPinned(false);
     setYoutubeError('');
     setVideoInput('');
-      setYoutubeUrl(FALLBACK_YT[exercise]);
+    setYoutubeUrl(FALLBACK_YT[exercise]);
   };
 
   const handleVideoRequest = async (raw) => {
@@ -1129,7 +1271,7 @@ function App() {
                     >
                       {isRecording ? '운동 종료 (리포트 생성)' : '운동 시작'}
                     </button>
-                  <div className="micro-meter">
+                    <div className="micro-meter">
                       <span className="micro-pill">{`${exercise} ${repCount}회`}</span>
                       <span className="micro-pill">{sessionDuration ? `${sessionDuration}초` : '대기'}</span>
                     </div>
@@ -1137,38 +1279,38 @@ function App() {
                 </div>
               </div>
 
-            <div className="feedback-section">
-              <div className="feedback-header">
-                <div>
-                  <h3 className="section-title">자세 피드백</h3>
-                  <div className="section-caption">이미지 분석 결과를 여기서 확인하세요.</div>
+              <div className="feedback-section">
+                <div className="feedback-header">
+                  <div>
+                    <h3 className="section-title">자세 피드백</h3>
+                    <div className="section-caption">이미지 분석 결과를 여기서 확인하세요.</div>
+                  </div>
+                  <div className="tts-controls">
+                    {!ttsSupported ? (
+                      <span className="tts-warning">브라우저가 TTS를 지원하지 않습니다.</span>
+                    ) : (
+                      <>
+                        <button
+                          className={`tts-button ${ttsEnabled ? 'tts-button-active' : ''}`}
+                          onClick={() => setTtsEnabled((v) => !v)}
+                        >
+                          {ttsEnabled ? 'TTS ON' : 'TTS OFF'}
+                        </button>
+                        <button
+                          className="tts-replay"
+                          onClick={() => speakFeedback(feedback)}
+                          disabled={!ttsEnabled || !ttsSupported}
+                        >
+                          다시 듣기
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="tts-controls">
-                  {!ttsSupported ? (
-                    <span className="tts-warning">브라우저가 TTS를 지원하지 않습니다.</span>
-                  ) : (
-                    <>
-                      <button
-                        className={`tts-button ${ttsEnabled ? 'tts-button-active' : ''}`}
-                        onClick={() => setTtsEnabled((v) => !v)}
-                      >
-                        {ttsEnabled ? 'TTS ON' : 'TTS OFF'}
-                      </button>
-                      <button
-                        className="tts-replay"
-                        onClick={() => speakFeedback(feedback)}
-                        disabled={!ttsEnabled || !ttsSupported}
-                      >
-                        다시 듣기
-                      </button>
-                    </>
-                  )}
-                </div>
+                <textarea value={feedback} readOnly rows={3} className="feedback-box" />
+                <div className="feedback-actions" />
               </div>
-              <textarea value={feedback} readOnly rows={3} className="feedback-box" />
-              <div className="feedback-actions" />
             </div>
-          </div>
 
             {showRightPanel && (
               <div className="panel">
@@ -1196,34 +1338,49 @@ function App() {
                   )}
                 </div>
                 <div className="panel-header">지난 운동 기록</div>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th className="table-cell">날짜</th>
-                      <th className="table-cell">운동</th>
-                      <th className="table-cell">세트/시간</th>
-                      <th className="table-cell">요약 피드백</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayHistory.length === 0 ? (
+                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <table className="table">
+                    <thead>
                       <tr>
-                        <td className="table-cell" colSpan={4}>
-                          운동 기록이 곧 여기에 채워집니다.
-                        </td>
+                        <th className="table-cell">날짜</th>
+                        <th className="table-cell">운동</th>
+                        <th className="table-cell">횟수</th>
+                        <th className="table-cell">시간</th>
+                        <th className="table-cell">영상</th>
                       </tr>
-                    ) : (
-                      displayHistory.map((h, idx) => (
-                        <tr key={idx}>
-                          <td className="table-cell">{h.date}</td>
-                          <td className="table-cell">{h.exercise}</td>
-                          <td className="table-cell">{h.set}</td>
-                          <td className="table-cell">{truncate(h.summary, 70)}</td>
+                    </thead>
+                    <tbody>
+                      {exerciseHistory.length === 0 ? (
+                        <tr>
+                          <td className="table-cell" colSpan={5}>
+                          </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        exerciseHistory.map((record) => (
+                          <tr key={record.id}>
+                            <td className="table-cell">{record.date}</td>
+                            <td className="table-cell">{record.exercise}</td>
+                            <td className="table-cell">{record.repCount}회</td>
+                            <td className="table-cell">{record.duration}</td>
+                            <td className="table-cell">
+                              {record.videoUrl ? (
+                                <button
+                                  className="ghost-button"
+                                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                                  onClick={() => openVideoModal(record.videoUrl)}
+                                >
+                                  ▶ 재생
+                                </button>
+                              ) : (
+                                <span style={{ color: '#666', fontSize: '12px' }}>없음</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -1238,6 +1395,90 @@ function App() {
           </button>
         </div>
       </div>
+
+      {/* 비디오 팝업 모달 */}
+      {videoModalOpen && (
+        <div
+          className="video-modal-overlay"
+          onClick={closeVideoModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+        >
+          <div
+            className="video-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              backgroundColor: '#1a1a1a',
+              borderRadius: '12px',
+              padding: '20px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <button
+              onClick={closeVideoModal}
+              style={{
+                position: 'absolute',
+                top: '-10px',
+                right: '-10px',
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: '#ff4444',
+                color: '#fff',
+                border: 'none',
+                fontSize: '20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(255, 68, 68, 0.4)',
+              }}
+            >
+              ×
+            </button>
+            <div style={{ marginBottom: '12px', color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+            </div>
+            <video
+              src={videoModalUrl}
+              controls
+              autoPlay
+              style={{
+                maxWidth: '80vw',
+                maxHeight: '70vh',
+                borderRadius: '8px',
+                backgroundColor: '#000',
+              }}
+            />
+            <div style={{ marginTop: '12px', textAlign: 'center' }}>
+              <a
+                href={videoModalUrl}
+                download={`exercise_${Date.now()}.webm`}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#4CAF50',
+                  color: '#fff',
+                  textDecoration: 'none',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  display: 'inline-block',
+                }}
+              >
+                📥 다운로드
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
