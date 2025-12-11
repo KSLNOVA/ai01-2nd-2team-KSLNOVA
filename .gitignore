@@ -6,16 +6,8 @@ frontend/.env
 __pycache__/
 *.pyc
 
-# 가상환경 폴더
-.venv/
-venv/
-env/
-
 # VSCode 설정
 .vscode/
 env.js
 frontend/env.js
-video/
 
-# 동영상/바이너리
-video/
