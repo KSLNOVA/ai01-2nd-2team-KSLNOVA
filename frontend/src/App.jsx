@@ -192,7 +192,7 @@ function App() {
   const layoutColumns = () => {
     if (showLeftPanel && showRightPanel) return '280px 1fr 380px';
     if (showLeftPanel) return '280px 1fr';
-    if (showRightPanel) return '1fr 380px';
+    if (showRightPanel) return '1fr 280px';
     return '1fr';
   };
 
@@ -619,9 +619,10 @@ function App() {
     };
 
     const checkFullBodyVisibility = (landmarks) => {
-      // 숄더프레스는 상체(허리 위)만 보여도 OK
+      // 숄더프레스는 상체(허리 위)만 보여도 OK, 단 팔은 보여야 함
       if (exerciseRef.current === '숄더프레스') {
-        const upperBodyPoints = [11, 12, 23, 24]; // 어깨, 골반
+        // 어깨(11,12), 팔꿈치(13,14), 손목(15,16)
+        const upperBodyPoints = [11, 12, 13, 14, 15, 16];
         for (const idx of upperBodyPoints) {
           const lm = landmarks[idx];
           if (!lm) return false;
@@ -1474,7 +1475,7 @@ function App() {
                                   style={{ padding: '4px 8px', fontSize: '12px' }}
                                   onClick={() => openVideoModal(record.videoUrl)}
                                 >
-                                  ▶
+                                  ▶ 재생
                                 </button>
                               ) : (
                                 <span style={{ color: '#666', fontSize: '12px' }}>없음</span>
@@ -1490,7 +1491,7 @@ function App() {
                                     setReportModalOpen(true);
                                   }}
                                 >
-                                  📋
+                                  📋 보기
                                 </button>
                               ) : (
                                 <span style={{ color: '#666', fontSize: '12px' }}>-</span>
